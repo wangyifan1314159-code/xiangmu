@@ -1,0 +1,16 @@
+﻿server:
+  port: 8082
+
+spring:
+  application:
+    name: iot-data-service
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+app:
+  doris:
+    url: jdbc:mysql://${DORIS_HOST:localhost}:9030/iot_lakehouse
+    username: root
+    password: ""

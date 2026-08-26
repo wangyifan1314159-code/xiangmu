@@ -1,0 +1,25 @@
+# 前端依赖与构建产物（jar 已内嵌所需静态资源）
+vite-project/node_modules
+vite-project/dist
+
+# 版本库与 IDE
+.git
+.gitignore
+.idea
+.vscode
+.claude
+.mimosa
+
+# 运行日志与本地脚本产物
+logs
+test_code
+
+# Maven 中间产物（只保留 target 下的 jar）
+iot-backend/target/classes
+iot-backend/target/generated-sources
+iot-backend/target/maven-archiver
+iot-backend/target/maven-status
+iot-backend/target/*.original
+
+# 文档
+*.md

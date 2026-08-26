@@ -1,0 +1,67 @@
+# 本地部署配置 - 使用 PostgreSQL 持久化，禁用其余外部服务
+# 启动命令: java -jar iot-platform-2.0.0.jar --spring.profiles.active=deploy
+# 数据库: docker compose up -d postgres（默认库名 iotdb，密码通过环境变量 DB_PASSWORD 注入）
+
+server:
+  port: 8080
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+
+  # PostgreSQL 主库 - 重启后业务数据保留（与 application.yml 默认配置一致，支持环境变量覆盖）
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:iotdb}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:postgres}
+    # 生产必须通过环境变量 DB_PASSWORD 注入，不再提供弱密码默认值
+    password: ${DB_PASSWORD:}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    show-sql: false
+
+  sql:
+    init:
+      mode: never
+
+  # 禁用 Redis 自动配置（app.redis.enabled=false 时 RedisConfig 不加载）
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  # Kafka 配置（app.kafka.enabled=false 时 KafkaConfig 不加载）
+  kafka:
+    bootstrap-servers: localhost:9092
+
+# 禁用其余外部服务 - 应用仅依赖 PostgreSQL 作为数据存储
+app:
+  seed-data:
+    enabled: false     # 种子设备不种入（需要演示设备时改为 true）
+  seed-users:
+    enabled: false     # 生产/部署环境默认关闭；本地联调需要测试账号时改为 true（admin/admin123、user/user123）
+  auth:
+    phone-login:
+      enabled: false   # 未接入真实短信网关，验证码只能打印日志，部署模式直接关闭
+  kafka:
+    enabled: false
+  mqtt:
+    # 部署模式保留 MQTT 通道，broker 用本机 EMQX（docker compose up -d emqx），
+    # 供 MQTTX 等客户端做设备上报/指令联调；不需要时改回 false
+    enabled: true
+    broker-url: tcp://localhost:1883
+  tcp:
+    # TCP 设备接入通道（Netty JSON 行协议），与 MQTT 并存，互不影响
+    enabled: true
+    port: 1884
+    access-token: ${APP_TCP_ACCESS_TOKEN:}
+    max-devices-per-gateway: ${APP_TCP_MAX_DEVICES:256}
+  redis:
+    enabled: false
+  tdengine:
+    enabled: false

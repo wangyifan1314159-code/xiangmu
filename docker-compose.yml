@@ -1,0 +1,101 @@
+# IoT 云平台 Docker 部署（deploy 模式 / PostgreSQL 持久化）
+# 启动：docker compose up -d --build
+# 首次启动前请创建 .env 文件设置 DB_PASSWORD 和 APP_JWT_SECRET（≥32 字节随机串）：
+#   DB_PASSWORD=你的数据库密码
+#   APP_JWT_SECRET=openssl rand -base64 48 的输出
+# 访问：http://localhost:8080  测试账号需通过 app.seed-users.enabled=true 开启后自行修改密码
+# 仅启动数据库（配合 deploy.ps1 裸机部署）：docker compose up -d postgres
+# 数据持久化在 docker 卷 postgres-data 中，容器重建/重新部署数据不丢
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: iot-postgres
+    environment:
+      POSTGRES_USER: postgres
+      # 与 iot-platform 的 DB_PASSWORD 使用同一变量，保持一致
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?请在 .env 或环境中设置 DB_PASSWORD}
+      POSTGRES_DB: iotdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d iotdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    restart: unless-stopped
+
+  emqx:
+    image: emqx/emqx:5.8
+    container_name: iot-emqx
+    ports:
+      - "1883:1883"    # MQTT（MQTTX / 设备连接）
+      - "8083:8083"    # MQTT over WebSocket
+      - "18083:18083"  # EMQX Dashboard（admin/public）
+    environment:
+      # 生产环境必须覆盖管理台默认密码（EMQX 默认 admin/public）
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:-public}
+      # EMQX 5.x 内置数据库认证：禁止匿名连接，设备/平台须使用下方凭据
+      EMQX_AUTHENTICATION__1__MECHANISM: password_based
+      EMQX_AUTHENTICATION__1__BACKEND: built_in_database
+      EMQX_AUTHENTICATION__1__USER_ID_TYPE: username
+      EMQX_AUTHENTICATION__1__PASSWORD_HASH_ALGORITHM__NAME: sha256
+      EMQX_AUTHENTICATION__1__BOOTSTRAP_USERS__1__USER_ID: ${EMQX_MQTT_USERNAME:-iot-platform}
+      EMQX_AUTHENTICATION__1__BOOTSTRAP_USERS__1__PASSWORD: ${EMQX_MQTT_PASSWORD:-iotplatform2024}
+    volumes:
+      - emqx-data:/opt/emqx/data
+    healthcheck:
+      test: ["CMD", "emqx", "ctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  iot-platform:
+    build: .
+    image: iot-platform:2.0.0
+    container_name: iot-platform
+    ports:
+      - "8080:8080"
+      - "1884:1884"   # TCP 设备接入通道（Netty JSON 行协议，见 API 文档「TCP 接入」）
+    extra_hosts:
+      # 容器内可通过 host.docker.internal 访问宿主机服务
+      - "host.docker.internal:host-gateway"
+    environment:
+      # MQTT 指向同网络内的 EMQX（覆盖 application.yml 里的局域网 IP）
+      APP_MQTT_BROKER_URL: tcp://emqx:1883
+      # EMQX 认证凭据（与 EMQX 服务 bootstrap 用户保持一致）
+      APP_MQTT_USERNAME: ${EMQX_MQTT_USERNAME:-iot-platform}
+      APP_MQTT_PASSWORD: ${EMQX_MQTT_PASSWORD:-iotplatform2024}
+      # 数据库指向同网络内的 postgres（覆盖 deploy 配置里的 localhost 默认值）
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/iotdb
+      # JWT 密钥：生产必须从宿主机环境变量注入（deploy profile 缺失时应用拒绝启动）
+      # 生成方式示例：openssl rand -base64 48
+      DB_PASSWORD: ${DB_PASSWORD:?请在 .env 或环境中设置 DB_PASSWORD}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:?请在 .env 或环境中设置 APP_JWT_SECRET}
+      APP_TCP_ACCESS_TOKEN: ${APP_TCP_ACCESS_TOKEN:-}
+      APP_TCP_MAX_DEVICES: ${APP_TCP_MAX_DEVICES:-256}
+      # 部署后提供可用账号与示例设备（admin/admin123、user/user123）；
+      # 生产环境请设为 false 并自行创建账号
+      APP_SEED_USERS_ENABLED: ${APP_SEED_USERS_ENABLED:-true}
+      APP_SEED_DATA_ENABLED: ${APP_SEED_DATA_ENABLED:-true}
+      TZ: Asia/Shanghai
+    # 后端 MQTT 客户端首次连接失败即放弃（bean 置空），必须等 EMQX 就绪后再启动
+    depends_on:
+      postgres:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  emqx-data:
+  postgres-data:

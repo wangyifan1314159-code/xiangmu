@@ -1,0 +1,149 @@
+name: iot-bigdata
+# IoT 大数据与实时湖仓平台 Docker 基础设施编排
+# 启动所有大数据组件：docker compose -f docker-compose-bigdata.yml up -d
+# 服务包括：EMQX 5.8 + Kafka (KRaft) + Flink + MinIO (湖仓存储) + PostgreSQL + Redis + TDengine
+
+services:
+  # 1. 业务关系库 (元数据)
+  postgres:
+    image: postgres:16-alpine
+    container_name: iot-bigdata-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?请在 .env 或环境中设置 DB_PASSWORD}
+      POSTGRES_DB: iotdb
+    ports:
+      # 宿主机 5432 已被 iot-platform 栈的 PostgreSQL 占用，错开端口
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d iotdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # 2. Redis 状态缓存与设备影子
+  redis:
+    image: redis:7-alpine
+    container_name: iot-bigdata-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+
+  # 3. EMQX 5.8 MQTT Broker
+  emqx:
+    image: emqx/emqx:5.8
+    container_name: iot-bigdata-emqx
+    ports:
+      # 宿主机 1883/8083/18083 已被 iot-platform 栈的 EMQX 占用，错开端口
+      - "1885:1883"    # MQTT
+      - "8085:8083"    # WebSocket
+      - "18085:18083"  # Dashboard (admin/{EMQX_DASHBOARD_PASSWORD})
+    environment:
+      # 生产环境必须覆盖管理台默认密码（EMQX 默认 admin/public）
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:?请在 .env 或环境中设置 EMQX_DASHBOARD_PASSWORD}
+      # EMQX 5.x 内置数据库认证：禁止匿名连接，设备/平台须使用下方凭据
+      EMQX_AUTHENTICATION__1__MECHANISM: password_based
+      EMQX_AUTHENTICATION__1__BACKEND: built_in_database
+      EMQX_AUTHENTICATION__1__USER_ID_TYPE: username
+      EMQX_AUTHENTICATION__1__PASSWORD_HASH_ALGORITHM__NAME: sha256
+      EMQX_AUTHENTICATION__1__BOOTSTRAP_USERS__1__USER_ID: ${EMQX_MQTT_USERNAME:?请在 .env 或环境中设置 EMQX_MQTT_USERNAME}
+      EMQX_AUTHENTICATION__1__BOOTSTRAP_USERS__1__PASSWORD: ${EMQX_MQTT_PASSWORD:?请在 .env 或环境中设置 EMQX_MQTT_PASSWORD}
+    volumes:
+      - emqxdata:/opt/emqx/data
+    restart: unless-stopped
+
+  # 4. Apache Kafka (KRaft 单节点/高吞吐消息中心)
+  # 注：bitnami/kafka 已停止免费镜像分发，改用 Apache 官方镜像（环境变量直接映射 server.properties）
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: iot-bigdata-kafka
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      - KAFKA_NODE_ID=0
+      - KAFKA_PROCESS_ROLES=controller,broker
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+    volumes:
+      - kafkadata:/opt/kafka/data
+    restart: unless-stopped
+
+  # 5. Apache Flink JobManager (Web UI: http://localhost:8081)
+  flink-jobmanager:
+    image: flink:1.18.1-java17
+    container_name: iot-flink-jobmanager
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        parallelism.default: 2
+    volumes:
+      - flinkdata:/opt/flink/data
+    restart: unless-stopped
+
+  # 6. Apache Flink TaskManager
+  flink-taskmanager:
+    image: flink:1.18.1-java17
+    container_name: iot-flink-taskmanager
+    depends_on:
+      - flink-jobmanager
+    command: taskmanager
+    scale: 1
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 2
+    volumes:
+      - flinkdata:/opt/flink/data
+    restart: unless-stopped
+
+  # 7. MinIO 分布式对象存储 (Iceberg 数据湖底层存储, Console: http://localhost:9001)
+  minio:
+    image: minio/minio:latest
+    container_name: iot-lakehouse-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?请在 .env 或环境中设置 MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?请在 .env 或环境中设置 MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - miniodata:/data
+    restart: unless-stopped
+
+  # 8. TDengine 3.3 时序数据库
+  tdengine:
+    image: tdengine/tdengine:3.3.3.0
+    container_name: iot-bigdata-tdengine
+    ports:
+      - "6030:6030"
+      - "6041:6041"
+    volumes:
+      - tddata:/var/lib/taos
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  emqxdata:
+  kafkadata:
+  flinkdata:
+  miniodata:
+  tddata:

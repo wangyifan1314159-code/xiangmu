@@ -1,0 +1,133 @@
+server:
+  port: 8080
+
+spring:
+  # PostgreSQL (主库 - 设备/用户/告警/业务数据)
+  datasource:
+    url: jdbc:postgresql://localhost:5432/iotdb
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:postgres}
+    # 生产必须通过环境变量 DB_PASSWORD 注入，不再提供弱密码默认值
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 20000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+
+  sql:
+    init:
+      mode: never
+
+  # Redis 配置 - 实时状态缓存、告警防抖
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      lettuce:
+        pool:
+          max-active: 50
+          max-idle: 10
+          min-idle: 5
+      timeout: 5000ms
+
+  # Kafka 配置 - 高并发数据缓冲
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKER:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: 1
+      compression-type: snappy
+      batch-size: 16384
+      linger-ms: 5
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      group-id: iot-platform
+      auto-offset-reset: latest
+      enable-auto-commit: false
+      max-poll-records: 500
+    listener:
+      ack-mode: manual
+
+# Actuator 健康检查 (K8s 探针)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      # 仅授权用户可见健康详情，避免向匿名访问者暴露组件/驱动信息
+      show-details: when-authorized
+      probes:
+        enabled: false
+  health:
+    redis:
+      enabled: false
+  metrics:
+    enable:
+      kafka: false
+
+app:
+  jwt:
+    # 生产必须通过环境变量 APP_JWT_SECRET 注入 ≥32 字节随机密钥；
+    # 留空时应用启动会生成随机临时密钥（重启后令牌失效）
+    secret: ${APP_JWT_SECRET:}
+    expiration-ms: 86400000
+  auth:
+    phone-login:
+      enabled: true   # 未接入真实短信网关前，生产/deploy 环境应关闭
+  cors:
+    allowed-origins: ${APP_CORS_ORIGINS:http://localhost:5173,http://localhost:8080,http://127.0.0.1:5173}
+  kafka:
+    enabled: true
+    topics:
+      device-raw: device.raw.v1
+      device-telemetry: device.telemetry.v1
+      device-status: device.status.v1
+      alert-events: alert.events.v1
+  mqtt:
+    enabled: true
+    broker-url: ${APP_MQTT_BROKER_URL:tcp://localhost:1883}   # EMQX 默认 MQTT 端口
+    ws-url: ${APP_MQTT_WS_URL:ws://localhost:8083/mqtt}    # EMQX WebSocket 端口（前端直连用）
+    client-id: iot-platform-server
+    # EMQX 启用认证后必须通过环境变量注入一致凭据（与 docker-compose 中 EMQX_MQTT_USERNAME/PASSWORD 保持一致）
+    username: ${APP_MQTT_USERNAME:}
+    password: ${APP_MQTT_PASSWORD:}
+    topics:
+      telemetry: iot/+/telemetry  # 控制传感器设备数据上报
+      status: iot/+/status        #
+      command: iot/+/command
+  tcp: # TCP 设备接入通道（Netty JSON 行协议）
+    enabled: true
+    port: ${APP_TCP_PORT:1884}            # 设备 TCP 接入端口
+    access-token: ${APP_TCP_ACCESS_TOKEN:} # 网关一次认证 Token；留空时仅允许旧设备认证
+    max-devices-per-gateway: ${APP_TCP_MAX_DEVICES:256}
+    max-frame-length: 65536               # 单帧最大字节数（防超大包）
+    auth-timeout-seconds: 30              # 未完成鉴权的连接 N 秒后断开
+    read-timeout-seconds: 0               # 0 = 不强制读超时；>0 时超过该时长无数据即断开（低频设备请设 0）
+  redis: # 数据缓存
+    enabled: true
+    device-online-ttl: 120
+    alert-debounce-prefix: "alert:debounce:"
+  tdengine:   # TDengine 时序数据库配置
+    enabled: true  # 开发环境默认关闭，生产开启
+    url: ${TDENGINE_URL:jdbc:TAOS://localhost:6030/iot_telemetry}
+    username: ${TDENGINE_USERNAME:root}
+    password: ${TDENGINE_PASSWORD:}
+    max-pool-size: 10
+    batch-size: 1000         # 批量写入行数
+    batch-interval-ms: 5000  # 批量写入间隔ms

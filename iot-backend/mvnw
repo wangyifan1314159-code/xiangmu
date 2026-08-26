@@ -1,0 +1,19 @@
+#!/bin/sh
+# Maven Wrapper startup script for Unix/Mac
+
+MAVEN_PROJECTBASEDIR=$(cd "$(dirname "$0")" && pwd)
+MAVEN_USER_HOME="${HOME}/.m2"
+
+if [ -z "$MAVEN_HOME" ]; then
+    MAVEN_HOME="${MAVEN_USER_HOME}/wrapper/dists/apache-maven-3.9.9"
+fi
+
+if [ ! -f "$MAVEN_HOME/bin/mvn" ]; then
+    echo "================================================"
+    echo " Maven is not installed. Please install Maven:"
+    echo "   https://maven.apache.org/download.cgi"
+    echo "================================================"
+    exit 1
+fi
+
+exec "$MAVEN_HOME/bin/mvn" "$@"

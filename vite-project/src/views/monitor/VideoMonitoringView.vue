@@ -1,0 +1,23 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { VideoCamera, Refresh, CircleClose, FolderOpened, Monitor } from '@element-plus/icons-vue'
+import { useDeviceStore } from '../../stores/device'
+
+const deviceStore = useDeviceStore()
+const loading = ref(false)
+const selectedId = ref('')
+const cameras = computed(() => deviceStore.devices.filter(device => /camera|video|摄像|监控/i.test(`${device.type} ${device.name}`)))
+async function refresh() { loading.value = true; try { await deviceStore.fetchDevices(); if (!selectedId.value && cameras.value[0]) selectedId.value = cameras.value[0].id } finally { loading.value = false } }
+onMounted(refresh)
+</script>
+
+<template>
+  <div class="video-monitoring">
+    <section class="page-header"><div><span>VIDEO MONITORING</span><h1>视频监控</h1><p>仅展示已接入且提供视频流地址的设备。</p></div><el-button :icon="Refresh" :loading="loading" @click="refresh">刷新设备</el-button></section>
+    <section class="video-grid"><aside class="camera-list"><div class="list-title">摄像设备 <small>{{ cameras.length }}</small></div><div v-if="cameras.length" class="camera-items"><button v-for="camera in cameras" :key="camera.id" :class="{ active: selectedId === camera.id }" @click="selectedId = camera.id"><el-icon><VideoCamera /></el-icon><span>{{ camera.name }}</span><i :class="camera.status" /></button></div><div v-else class="list-empty"><el-icon><FolderOpened /></el-icon><span>暂无摄像设备</span></div></aside><article class="player"><div class="player-stage"><el-icon :size="44"><CircleClose /></el-icon><strong>暂无视频流</strong><span>Waiting for stream...</span><p>当前平台没有可用的视频流地址，未显示模拟画面。</p></div><div class="player-bar"><span><el-icon><Monitor /></el-icon> 直播预览</span><span>未连接</span></div></article></section>
+  </div>
+</template>
+
+<style scoped>
+.video-monitoring { max-width: 1440px; margin: 0 auto; padding-bottom: 24px; }.page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; gap: 16px; }.page-header span { color: var(--color-cyan); font: 10px/1.2 'Roboto Mono', monospace; letter-spacing: .12em; }.page-header h1 { margin: 7px 0 0; color: var(--text-primary); font-size: 30px; }.page-header p { margin: 8px 0 0; color: var(--text-secondary); font-size: 13px; }.page-header :deep(.el-button) { border-radius: 6px; }.video-grid { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 12px; }.camera-list, .player { border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-card); }.camera-list { min-height: 460px; }.list-title { padding: 16px; border-bottom: 1px solid var(--border-light); color: var(--text-primary); font-weight: 600; font-size: 13px; }.list-title small { margin-left: 6px; color: var(--text-muted); font: 11px 'Roboto Mono', monospace; }.camera-items { padding: 8px; }.camera-items button { display: flex; align-items: center; width: 100%; gap: 9px; padding: 11px; border: 1px solid transparent; border-radius: 6px; color: var(--text-secondary); background: transparent; text-align: left; cursor: pointer; }.camera-items button:hover, .camera-items button.active { border-color: rgba(22,119,255,.35); color: var(--text-primary); background: var(--color-primary-soft); }.camera-items button span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.camera-items button i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }.camera-items button i.online { background: var(--color-success); }.list-empty { display: grid; place-content: center; justify-items: center; min-height: 400px; gap: 10px; color: var(--text-muted); font-size: 12px; }.player { overflow: hidden; }.player-stage { display: grid; min-height: 422px; place-content: center; justify-items: center; padding: 30px; background: #050b15; color: var(--text-muted); text-align: center; }.player-stage :deep(.el-icon) { margin-bottom: 12px; color: var(--color-primary); }.player-stage strong { color: var(--text-primary); font-size: 15px; }.player-stage span { margin-top: 5px; color: var(--color-cyan); font: 11px 'Roboto Mono', monospace; }.player-stage p { max-width: 320px; margin: 12px 0 0; font-size: 12px; line-height: 1.7; }.player-bar { display: flex; justify-content: space-between; padding: 13px 16px; color: var(--text-muted); font-size: 12px; }.player-bar span { display: flex; align-items: center; gap: 7px; }.player-bar span:last-child { color: var(--color-warning); }@media (max-width: 760px) { .page-header { flex-direction: column; }.video-grid { grid-template-columns: 1fr; }.camera-list { min-height: auto; }.list-empty { min-height: 120px; }.player-stage { min-height: 300px; } }
+</style>
