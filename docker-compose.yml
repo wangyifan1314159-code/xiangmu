@@ -1,3 +1,4 @@
+name: iot-platform
 # IoT 云平台 Docker 部署（deploy 模式 / PostgreSQL 持久化）
 # 启动：docker compose up -d --build
 # 首次启动前请创建 .env 文件设置 DB_PASSWORD 和 APP_JWT_SECRET（≥32 字节随机串）：
