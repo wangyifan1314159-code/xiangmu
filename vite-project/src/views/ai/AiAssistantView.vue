@@ -81,19 +81,34 @@ function loadConfig() {
   if (saved) {
     try {
       config.value = { ...defaultConfig, ...JSON.parse(saved) }
-      if (config.value.provider === 'gemini') {
-        availableModels.value = Array.from(new Set([config.value.model, ...defaultGeminiModels]))
-      } else {
-        availableModels.value = Array.from(new Set([config.value.model, ...defaultOpenAiModels]))
+    } catch { /* ignore */ }
+  }
+
+  // 恢复持久化的可用模型列表（避免刷新页面或重开弹窗后拉取的模型列表丢失）
+  const savedModels = localStorage.getItem(`iot_ai_available_models_${config.value.provider}`)
+  if (savedModels) {
+    try {
+      const list = JSON.parse(savedModels)
+      if (Array.isArray(list) && list.length > 0) {
+        availableModels.value = Array.from(new Set([config.value.model, ...list]))
+        return
       }
     } catch { /* ignore */ }
+  }
+
+  // 兜底默认模型列表
+  if (config.value.provider === 'gemini') {
+    availableModels.value = Array.from(new Set([config.value.model, ...defaultGeminiModels]))
+  } else {
+    availableModels.value = Array.from(new Set([config.value.model, ...defaultOpenAiModels]))
   }
 }
 
 function saveConfig() {
   localStorage.setItem('iot_ai_config', JSON.stringify(config.value))
+  localStorage.setItem(`iot_ai_available_models_${config.value.provider}`, JSON.stringify(availableModels.value))
   isSettingsOpen.value = false
-  ElMessage.success('AI 模型配置已保存')
+  ElMessage.success('AI 模型配置已持久化保存')
 }
 
 // 快速填入常用服务商地址
@@ -102,22 +117,38 @@ function applyPreset(type: 'gemini' | 'deepseek' | 'openai' | 'ollama') {
     config.value.provider = 'gemini'
     config.value.baseUrl = 'https://generativelanguage.googleapis.com/v1beta'
     config.value.model = 'gemini-1.5-flash'
-    availableModels.value = [...defaultGeminiModels]
   } else if (type === 'deepseek') {
     config.value.provider = 'openai'
     config.value.baseUrl = 'https://api.deepseek.com/v1'
     config.value.model = 'deepseek-chat'
-    availableModels.value = [...defaultOpenAiModels]
   } else if (type === 'openai') {
     config.value.provider = 'openai'
     config.value.baseUrl = 'https://api.openai.com/v1'
     config.value.model = 'gpt-4o-mini'
-    availableModels.value = [...defaultOpenAiModels]
   } else if (type === 'ollama') {
     config.value.provider = 'openai'
     config.value.baseUrl = 'http://localhost:11434/v1'
     config.value.model = 'llama3'
+  }
+
+  // 恢复该服务商已保存的模型列表或默认列表
+  const savedModels = localStorage.getItem(`iot_ai_available_models_${config.value.provider}`)
+  if (savedModels) {
+    try {
+      const list = JSON.parse(savedModels)
+      if (Array.isArray(list) && list.length > 0) {
+        availableModels.value = Array.from(new Set([config.value.model, ...list]))
+        return
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (config.value.provider === 'gemini') {
+    availableModels.value = Array.from(new Set([config.value.model, ...defaultGeminiModels]))
+  } else if (type === 'ollama') {
     availableModels.value = ['llama3', 'qwen2.5', 'deepseek-r1']
+  } else {
+    availableModels.value = Array.from(new Set([config.value.model, ...defaultOpenAiModels]))
   }
 }
 
@@ -126,14 +157,29 @@ function onProviderChange(newProvider: 'gemini' | 'openai') {
     if (!config.value.baseUrl || config.value.baseUrl.includes('deepseek') || config.value.baseUrl.includes('openai')) {
       config.value.baseUrl = 'https://generativelanguage.googleapis.com/v1beta'
     }
-    availableModels.value = Array.from(new Set([config.value.model, ...defaultGeminiModels]))
     if (!config.value.model.includes('gemini')) config.value.model = 'gemini-1.5-flash'
   } else {
     if (!config.value.baseUrl || config.value.baseUrl.includes('generativelanguage.googleapis.com')) {
       config.value.baseUrl = 'https://api.deepseek.com/v1'
     }
-    availableModels.value = Array.from(new Set([config.value.model, ...defaultOpenAiModels]))
     if (config.value.model.includes('gemini')) config.value.model = 'deepseek-chat'
+  }
+
+  const savedModels = localStorage.getItem(`iot_ai_available_models_${newProvider}`)
+  if (savedModels) {
+    try {
+      const list = JSON.parse(savedModels)
+      if (Array.isArray(list) && list.length > 0) {
+        availableModels.value = Array.from(new Set([config.value.model, ...list]))
+        return
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (newProvider === 'gemini') {
+    availableModels.value = Array.from(new Set([config.value.model, ...defaultGeminiModels]))
+  } else {
+    availableModels.value = Array.from(new Set([config.value.model, ...defaultOpenAiModels]))
   }
 }
 
@@ -171,7 +217,10 @@ async function fetchAvailableModels() {
         if (!availableModels.value.includes(config.value.model)) {
           config.value.model = parsed[0]
         }
-        ElMessage.success(`成功获取 ${parsed.length} 个可用 Gemini 模型！`)
+        // 立即持久化拉取到的模型列表
+        localStorage.setItem(`iot_ai_available_models_gemini`, JSON.stringify(availableModels.value))
+        localStorage.setItem('iot_ai_config', JSON.stringify(config.value))
+        ElMessage.success(`成功获取并缓存 ${parsed.length} 个可用 Gemini 模型！`)
       } else {
         ElMessage.info('已连接成功，保留预设模型列表')
       }
@@ -196,7 +245,10 @@ async function fetchAvailableModels() {
         if (!availableModels.value.includes(config.value.model)) {
           config.value.model = parsed[0]
         }
-        ElMessage.success(`成功获取 ${parsed.length} 个可用模型！`)
+        // 立即持久化拉取到的模型列表
+        localStorage.setItem(`iot_ai_available_models_openai`, JSON.stringify(availableModels.value))
+        localStorage.setItem('iot_ai_config', JSON.stringify(config.value))
+        ElMessage.success(`成功获取并缓存 ${parsed.length} 个可用模型！`)
       } else {
         ElMessage.info('已连接成功，保留预设模型列表')
       }
