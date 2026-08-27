@@ -48,14 +48,12 @@ function Check-Command {
     param([string]$CmdName, [string]$DisplayTitle, [bool]$Required = $true)
     if (Get-Command $CmdName -ErrorAction SilentlyContinue) {
         Write-Success ($DisplayTitle + " (" + $CmdName + ") 已就绪")
-        return $true
     } else {
         if ($Required) {
             Write-Err ("缺少核心依赖: " + $DisplayTitle + " (" + $CmdName + ")。请安装后重试！")
             exit 1
         } else {
             Write-Warn ("可选依赖未找到: " + $DisplayTitle + " (" + $CmdName + ")")
-            return $false
         }
     }
 }
@@ -109,10 +107,10 @@ function Build-FrontendProject {
     try {
         if (-not (Test-Path "node_modules")) {
             Write-Step "正在安装前端依赖 (npm install)"
-            & npm install
+            cmd.exe /c "npm install"
         }
         Write-Step "执行生产环境打包 (npm run build)"
-        & npm run build
+        cmd.exe /c "npm run build"
         if ($LASTEXITCODE -ne 0) {
             Write-Err ("前端编译失败，退出码: " + $LASTEXITCODE)
             exit $LASTEXITCODE
@@ -140,7 +138,7 @@ function Build-BackendProject {
     Write-Step "4/5 编译并打包 Java 后端及大数据多模块工程 (Maven)"
     Push-Location $ScriptDir
     try {
-        & mvn clean package -DskipTests
+        cmd.exe /c "mvn clean package -DskipTests"
         if ($LASTEXITCODE -ne 0) {
             Write-Err ("Maven 构建失败，退出码: " + $LASTEXITCODE)
             exit $LASTEXITCODE
@@ -156,7 +154,7 @@ function Deploy-StandardStack {
     Write-Step "5/5 启动 Docker Compose 标准生产集群 (PostgreSQL + EMQX + iot-platform)"
     Push-Location $ScriptDir
     try {
-        & docker compose up -d --build
+        cmd.exe /c "docker compose up -d --build"
         if ($LASTEXITCODE -ne 0) {
             Write-Err "Docker Compose 启动失败"
             exit $LASTEXITCODE
@@ -195,7 +193,7 @@ function Deploy-BigDataStack {
     Write-Step "启动大数据湖仓一体化全栈 (Kafka + Flink + MinIO + Redis + TDengine)"
     Push-Location $ScriptDir
     try {
-        & docker compose -f docker-compose-bigdata.yml up -d
+        cmd.exe /c "docker compose -f docker-compose-bigdata.yml up -d"
         Write-Success "大数据基础设施集群已成功拉起！"
     } finally {
         Pop-Location
@@ -261,25 +259,25 @@ switch ($Mode) {
         Check-Environment
         Ensure-EnvFile
         Write-Step "启动基础设施容器 (PostgreSQL 与 EMQX)"
-        & docker compose up -d postgres emqx
+        cmd.exe /c "docker compose up -d postgres emqx"
         Write-Success "数据库与 MQTT 代理已启动。请在本地启动后端与前端开发服务！"
     }
     "stop" {
         Write-Step "停止所有运行中的 Docker 容器"
-        & docker compose down
+        cmd.exe /c "docker compose down"
         try {
-            & docker compose -f docker-compose-bigdata.yml down -ErrorAction SilentlyContinue
+            cmd.exe /c "docker compose -f docker-compose-bigdata.yml down"
         } catch {}
         Write-Success "所有容器已停止"
     }
     "status" {
         Write-Step "当前运行容器列表:"
-        & docker compose ps
+        cmd.exe /c "docker compose ps"
     }
     "clean" {
         Write-Step "清理所有构建缓存和容器数据"
-        & docker compose down -v
-        & mvn clean
+        cmd.exe /c "docker compose down -v"
+        cmd.exe /c "mvn clean"
         Write-Success "清理完毕"
     }
     default {
