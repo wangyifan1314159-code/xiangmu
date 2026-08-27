@@ -45,7 +45,7 @@ function handleAvatarChange(e: Event) {
 }
 
 function updateProfile() {
-  ElMessage.success('个人信息更新成功')
+  ElMessage.warning('该功能暂未实现：后端尚未提供个人信息更新接口')
 }
 
 function changePassword() {
@@ -55,8 +55,7 @@ function changePassword() {
     ElMessage.error('两次输入的密码不一致')
     return
   }
-  ElMessage.success('密码修改成功')
-  passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
+  ElMessage.warning('该功能暂未实现：后端尚未提供修改密码接口')
 }
 
 onMounted(() => {

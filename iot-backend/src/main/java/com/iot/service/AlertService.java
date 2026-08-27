@@ -234,32 +234,166 @@ public class AlertService {
     }
 
     /**
-     * 条件表达式求值（受限解析，仅支持 value 与数字的单次比较）
-     * 支持: "value > 80", "value < 10", "value >= 90", "value <= 100", "value == 1"
-     * 注意：不得引入通用脚本引擎求值——表达式来自用户输入，ScriptEngine 等于开放代码执行
+     * 条件表达式求值（受限解析，仅支持 value 与数字的比较 + 布尔组合）
+     * 支持比较运算符: &gt; &lt; &gt;= &lt;= == !=
+     * 支持逻辑组合: &amp;&amp; || 以及括号分组，例如 "value &gt; 80 &amp;&amp; value &lt; 100"
+     * 注意：不得引入通用脚本引擎求值——表达式来自用户输入，ScriptEngine 等于开放代码执行，
+     * 这里使用无副作用的递归下降解析器，语法非法时抛出 IllegalArgumentException。
      */
     private boolean evaluateCondition(String expr, double value) {
         return simpleEvaluate(expr, value);
     }
 
     private boolean simpleEvaluate(String expr, double value) {
-        expr = expr.replace("value", String.valueOf(value)).trim();
-        try {
-            if (expr.contains(">=")) {
-                return value >= Double.parseDouble(expr.substring(expr.indexOf(">=") + 2).trim());
-            } else if (expr.contains("<=")) {
-                return value <= Double.parseDouble(expr.substring(expr.indexOf("<=") + 2).trim());
-            } else if (expr.contains(">")) {
-                return value > Double.parseDouble(expr.substring(expr.indexOf(">") + 1).trim());
-            } else if (expr.contains("<")) {
-                return value < Double.parseDouble(expr.substring(expr.indexOf("<") + 1).trim());
-            } else if (expr.contains("==")) {
-                return Math.abs(value - Double.parseDouble(expr.substring(expr.indexOf("==") + 2).trim())) < 0.001;
+        if (expr == null || expr.isBlank()) {
+            throw new IllegalArgumentException("告警条件表达式不能为空");
+        }
+        return new ConditionEvaluator(expr, value).evaluate();
+    }
+
+    /** 受限布尔表达式求值器（递归下降），无脚本执行、无外部依赖 */
+    private static final class ConditionEvaluator {
+        private final String input;
+        private final double value;
+        private int pos = 0;
+
+        ConditionEvaluator(String input, double value) {
+            this.input = input;
+            this.value = value;
+        }
+
+        boolean evaluate() {
+            boolean result = parseOr();
+            skipWhitespace();
+            if (pos < input.length()) {
+                throw new IllegalArgumentException("告警条件表达式存在无法解析的内容: " + input);
             }
-        } catch (NumberFormatException e) {
+            return result;
+        }
+
+        // orExpr := andExpr ( "||" andExpr )*
+        private boolean parseOr() {
+            boolean left = parseAnd();
+            while (true) {
+                skipWhitespace();
+                if (match("||")) {
+                    boolean right = parseAnd();
+                    left = left || right;
+                } else {
+                    return left;
+                }
+            }
+        }
+
+        // andExpr := unary ( "&&" unary )*
+        private boolean parseAnd() {
+            boolean left = parseUnary();
+            while (true) {
+                skipWhitespace();
+                if (match("&&")) {
+                    boolean right = parseUnary();
+                    left = left && right;
+                } else {
+                    return left;
+                }
+            }
+        }
+
+        // unary := '(' orExpr ')' | comparison
+        private boolean parseUnary() {
+            skipWhitespace();
+            if (match("(")) {
+                boolean inner = parseOr();
+                skipWhitespace();
+                if (!match(")")) {
+                    throw new IllegalArgumentException("告警条件表达式括号不匹配: " + input);
+                }
+                return inner;
+            }
+            return parseComparison();
+        }
+
+        // comparison := numeric op numeric
+        private boolean parseComparison() {
+            double lhs = parseNumeric();
+            String op = readOperator();
+            double rhs = parseNumeric();
+            switch (op) {
+                case ">":  return lhs > rhs;
+                case "<":  return lhs < rhs;
+                case ">=": return lhs >= rhs;
+                case "<=": return lhs <= rhs;
+                case "==": return Math.abs(lhs - rhs) < 1e-9;
+                case "!=": return Math.abs(lhs - rhs) >= 1e-9;
+                default: throw new IllegalArgumentException("不支持的比较运算符: " + op);
+            }
+        }
+
+        // numeric := 'value' | number | '(' numeric ')'
+        private double parseNumeric() {
+            skipWhitespace();
+            if (match("value")) {
+                return value;
+            }
+            if (match("(")) {
+                double n = parseNumeric();
+                skipWhitespace();
+                if (!match(")")) {
+                    throw new IllegalArgumentException("告警条件表达式括号不匹配: " + input);
+                }
+                return n;
+            }
+            return readNumber();
+        }
+
+        private String readOperator() {
+            skipWhitespace();
+            if (input.startsWith(">=", pos)) { pos += 2; return ">="; }
+            if (input.startsWith("<=", pos)) { pos += 2; return "<="; }
+            if (input.startsWith("!=", pos)) { pos += 2; return "!="; }
+            if (input.startsWith("==", pos)) { pos += 2; return "=="; }
+            if (input.startsWith(">", pos)) { pos += 1; return ">"; }
+            if (input.startsWith("<", pos)) { pos += 1; return "<"; }
+            throw new IllegalArgumentException("告警条件表达式缺少比较运算符: " + input);
+        }
+
+        private double readNumber() {
+            skipWhitespace();
+            int start = pos;
+            if (pos < input.length() && (input.charAt(pos) == '+' || input.charAt(pos) == '-')) {
+                pos++;
+            }
+            boolean hasDigit = false;
+            while (pos < input.length() && Character.isDigit(input.charAt(pos))) {
+                pos++;
+                hasDigit = true;
+            }
+            if (pos < input.length() && input.charAt(pos) == '.') {
+                pos++;
+                while (pos < input.length() && Character.isDigit(input.charAt(pos))) {
+                    pos++;
+                    hasDigit = true;
+                }
+            }
+            if (!hasDigit) {
+                throw new IllegalArgumentException("告警条件表达式中存在无效数字: " + input);
+            }
+            return Double.parseDouble(input.substring(start, pos));
+        }
+
+        private void skipWhitespace() {
+            while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) {
+                pos++;
+            }
+        }
+
+        private boolean match(String token) {
+            if (input.startsWith(token, pos)) {
+                pos += token.length();
+                return true;
+            }
             return false;
         }
-        return false;
     }
 
     private String buildAlertTitle(AlertRule rule, Device device, String sensorType, double value) {

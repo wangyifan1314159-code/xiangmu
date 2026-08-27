@@ -43,6 +43,9 @@ public class SimulationService {
      * Start data upload simulation - devices periodically send sensor data
      */
     public synchronized void startDataSimulation(int intervalSeconds) {
+        if (intervalSeconds <= 0) {
+            throw new IllegalArgumentException("仿真上传间隔必须大于 0 秒");
+        }
         if (scheduler == null || scheduler.isShutdown()) {
             scheduler = Executors.newScheduledThreadPool(2);
         }
@@ -69,6 +72,9 @@ public class SimulationService {
      * Start command delivery simulation - platform sends commands, devices respond
      */
     public synchronized void startCommandSimulation(int intervalSeconds) {
+        if (intervalSeconds <= 0) {
+            throw new IllegalArgumentException("指令仿真间隔必须大于 0 秒");
+        }
         if (scheduler == null || scheduler.isShutdown()) {
             scheduler = Executors.newScheduledThreadPool(2);
         }

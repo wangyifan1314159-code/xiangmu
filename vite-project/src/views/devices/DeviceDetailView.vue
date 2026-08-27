@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'DeviceDetail' })
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDeviceStore } from '../../stores/device'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -202,6 +202,15 @@ function getStatusText(status: string) {
 
 onMounted(async () => {
   await loadDevice(deviceId.value)
+})
+
+onActivated(() => {
+  // keep-alive 重新激活时恢复当前设备的轮询（loadDevice 内部已调用 startPollDevice）
+  if (deviceId.value) deviceStore.startPollDevice(deviceId.value, 3000)
+})
+
+onDeactivated(() => {
+  deviceStore.stopRealtimeUpdates()
 })
 
 onUnmounted(() => {

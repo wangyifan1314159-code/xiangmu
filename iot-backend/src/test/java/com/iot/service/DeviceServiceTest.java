@@ -2,6 +2,7 @@ package com.iot.service;
 
 import com.iot.config.SecurityUtils;
 import com.iot.model.Device;
+import com.iot.repository.AlertRecordRepository;
 import com.iot.repository.CommandLogRepository;
 import com.iot.repository.DataPointRepository;
 import com.iot.repository.DeviceRepository;
@@ -32,6 +33,9 @@ class DeviceServiceTest {
     private CommandLogRepository commandLogRepository;
 
     @Mock
+    private AlertRecordRepository alertRecordRepository;
+
+    @Mock
     private SecurityUtils securityUtils;
 
     @InjectMocks
@@ -57,12 +61,18 @@ class DeviceServiceTest {
 
     @Test
     void deleteDeviceRemovesItsHistory() {
+        Device device = Device.builder()
+                .deviceId("dev_test")
+                .ownerId(7L)
+                .build();
         when(securityUtils.getCurrentUserId()).thenReturn(7L);
+        when(deviceRepository.findByDeviceIdAndOwnerId("dev_test", 7L)).thenReturn(Optional.of(device));
 
         deviceService.deleteDevice("dev_test");
 
         verify(dataPointRepository).deleteByDeviceIdAndOwnerId("dev_test", 7L);
         verify(commandLogRepository).deleteByDeviceIdAndOwnerId("dev_test", 7L);
+        verify(alertRecordRepository).deleteByDeviceIdAndOwnerId("dev_test", 7L);
         verify(deviceRepository).deleteByDeviceIdAndOwnerId("dev_test", 7L);
     }
 }

@@ -51,12 +51,25 @@ public class TcpController {
 
     @GetMapping("/status")
     public ApiResponse<Map<String, Object>> status() {
-        int connections = tcpConnectionManager != null ? tcpConnectionManager.listConnections().size() : 0;
+        if (tcpConnectionManager == null) {
+            return ApiResponse.ok(Map.of(
+                    "enabled", false,
+                    "onlineDevices", 0,
+                    "onlineConnections", 0));
+        }
+        if (securityUtils.hasRole("ADMIN")) {
+            int connections = tcpConnectionManager.listConnections().size();
+            return ApiResponse.ok(Map.of(
+                    "enabled", true,
+                    "onlineDevices", tcpConnectionManager.onlineCount(),
+                    "onlineConnections", connections));
+        }
+        // 非管理员仅统计自己设备相关的连接，避免泄露全局在线设备数量
+        int ownConnections = tcpConnectionManager.listConnectionsByOwner(securityUtils.getCurrentUserId()).size();
         return ApiResponse.ok(Map.of(
-                "enabled", tcpConnectionManager != null,
-                "onlineDevices", tcpConnectionManager != null ? tcpConnectionManager.onlineCount() : 0,
-                "onlineConnections", connections
-        ));
+                "enabled", true,
+                "onlineDevices", ownConnections,
+                "onlineConnections", ownConnections));
     }
 
     /**
@@ -115,6 +128,7 @@ public class TcpController {
 
     @GetMapping("/listeners")
     public ApiResponse<List<Map<String, Object>>> listeners() {
+        requireAdmin();
         return ApiResponse.ok(tcpListenerManager == null ? List.of() : tcpListenerManager.listListeners());
     }
 

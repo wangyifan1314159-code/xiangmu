@@ -168,7 +168,9 @@ public class TcpMessageHandler extends SimpleChannelInboundHandler<String> {
             return;
         }
         Device device = deviceRepository.findByDeviceId(deviceId).orElse(null);
-        if (device == null || !apiKey.equals(device.getApiKey())) {
+        if (device == null || device.getApiKey() == null || !MessageDigest.isEqual(
+                apiKey.getBytes(StandardCharsets.UTF_8),
+                device.getApiKey().getBytes(StandardCharsets.UTF_8))) {
             log.warn("TCP auth failed for device {} (bad credentials)", deviceId);
             sendJson(ctx, Map.of("type", "auth_result", "success", false, "message", "设备ID或API Key不正确"));
             ctx.close();

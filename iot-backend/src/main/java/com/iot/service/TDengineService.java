@@ -75,17 +75,27 @@ public class TDengineService {
     // ========== 数据写入 ==========
 
     /**
-     * 写入一条时序数据
+     * 写入一条时序数据（兼容旧调用方：无产品类型时回退到默认标签，保持既有行为）
      */
     public void insert(String deviceId, String sensorId, String sensorType,
                        double value, String unit, LocalDateTime ts) {
+        insert(deviceId, sensorId, sensorType, value, unit, ts, null);
+    }
+
+    /**
+     * 写入一条时序数据，并把设备的 product_type 一并写入子表标签，
+     * 使 queryByProductType 能按真实产品类型命中。
+     */
+    public void insert(String deviceId, String sensorId, String sensorType,
+                       double value, String unit, LocalDateTime ts, String productType) {
         Object[] row = {
                 Timestamp.valueOf(ts),
                 deviceId,
                 sensorId,
                 sensorType,
                 value,
-                unit
+                unit,
+                productType == null || productType.isBlank() ? "default" : productType
         };
         writeBuffer.add(row);
 
@@ -124,9 +134,11 @@ public class TDengineService {
         for (Map.Entry<String, List<Object[]>> entry : grouped.entrySet()) {
             String deviceId = entry.getKey();
             String subTable = subTableOf(deviceId);
+            // 同一设备的 product_type 标签一致，取该分组首行的 product_type
+            String productType = (String) entry.getValue().get(0)[6];
 
             // 自动创建子表
-            ensureSubTable(subTable, deviceId);
+            ensureSubTable(subTable, deviceId, productType);
 
             // 批量 INSERT
             StringBuilder sql = new StringBuilder("INSERT INTO iot_telemetry." + subTable +
@@ -155,12 +167,13 @@ public class TDengineService {
         log.info("TDengine: flushed {} rows to {} sub-tables", totalRows, grouped.size());
     }
 
-    private void ensureSubTable(String subTable, String deviceId) {
+    private void ensureSubTable(String subTable, String deviceId, String productType) {
         try {
+            String safeType = productType == null || productType.isBlank() ? "default" : productType.replace("'", "''");
             tdengineJdbc.execute(
                     "CREATE TABLE IF NOT EXISTS iot_telemetry." + subTable +
                     " USING iot_telemetry.device_telemetry " +
-                    " TAGS('" + deviceId + "', 'default')");
+                    " TAGS('" + deviceId + "', '" + safeType + "')");
         } catch (Exception e) {
             log.debug("TDengine sub-table {} already exists", subTable);
         }

@@ -9,6 +9,7 @@ import com.iot.repository.CommandLogRepository;
 import com.iot.repository.DataPointRepository;
 import com.iot.repository.DeviceRepository;
 import com.iot.repository.SensorRepository;
+import com.iot.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,19 +38,22 @@ public class DataService {
     private final DeviceRepository deviceRepository;
     private final SensorRepository sensorRepository;
     private final CommandLogRepository commandLogRepository;
+    private final UserRepository userRepository;
 
     public DataService(DataPointRepository dataPointRepository,
                        AlertService alertService,
                        SecurityUtils securityUtils,
                        DeviceRepository deviceRepository,
                        SensorRepository sensorRepository,
-                       CommandLogRepository commandLogRepository) {
+                       CommandLogRepository commandLogRepository,
+                       UserRepository userRepository) {
         this.dataPointRepository = dataPointRepository;
         this.alertService = alertService;
         this.securityUtils = securityUtils;
         this.deviceRepository = deviceRepository;
         this.sensorRepository = sensorRepository;
         this.commandLogRepository = commandLogRepository;
+        this.userRepository = userRepository;
     }
 
     // 以下为可选组件，开发环境可能不可用
@@ -279,25 +283,26 @@ public class DataService {
 
         if (tdengine != null) {
             try {
+                // 线程设备的真实 product_type，使 TDengine 子表标签正确、可按产品类型聚合查询
+                String productType = deviceRepository.findByDeviceId(deviceId)
+                        .map(Device::getType).orElse(null);
                 tdengine.insert(deviceId, sensorId,
                         sensorType != null ? sensorType : "unknown",
-                        value, unit != null ? unit : "", now);
+                        value, unit != null ? unit : "", now, productType);
             } catch (Exception e) {
-                log.warn("TDengine write failed, fallback to PostgreSQL: {}", e.getMessage());
-                writeBuffer.add(dp);
-                flushPgBuffer();  // TDengine 失败时立即落盘 PostgreSQL
-            }
-        } else {
-            writeBuffer.add(dp);
-            if (writeBuffer.size() >= BATCH_SIZE) {
-                flushPgBuffer();
+                log.warn("TDengine write failed: {}", e.getMessage());
             }
         }
+        writeBuffer.add(dp);
+        flushPgBuffer();
 
         // 更新 Sensor 实体的实时值（前端显示用）
-        // WebSocket 实时推送
+        // WebSocket 实时推送：定向推送给设备归属用户，避免全局广播造成跨用户数据泄露
         if (wsPush != null) {
-            wsPush.pushDeviceData(deviceId, sensorId, value, unit);
+            String ownerUsername = ownerId != null
+                    ? userRepository.findById(ownerId).map(u -> u.getUsername()).orElse(null)
+                    : null;
+            wsPush.pushDeviceData(ownerUsername, deviceId, sensorId, value, unit);
         }
 
         sendKafkaTelemetry(deviceId, sensorId, sensorType, value, unit);
@@ -381,14 +386,16 @@ public class DataService {
         String actuatorName = extractActuatorName(params);
         String result = applyActuatorCommand(deviceId, actuatorName, command);
 
-        // 记录指令下发日志（TCP / MQTT 通道统一记录）
-        saveCommandLog(deviceId, command, params, "SENT");
+        // 先实际下发，再据实记录：仅当命令确实被 TCP/MQTT 发布成功才记 SENT，
+        // 设备离线且 MQTT 未启用等 no-op 场景记 FAILED，避免"假成功"日志。
+        boolean published = publishCommand(deviceId, command, params);
 
-        publishCommand(deviceId, command, params);
+        saveCommandLog(deviceId, command, params, published ? "SENT" : "FAILED");
 
         if (redis != null) {
             safeRedis(() -> redis.setCache("cmd:" + UUID.randomUUID(),
-                    Map.of("deviceId", deviceId, "command", command, "params", params, "status", "SENT"), 300));
+                    Map.of("deviceId", deviceId, "command", command, "params", params,
+                            "status", published ? "SENT" : "FAILED"), 300));
         }
         return result;
     }
@@ -412,12 +419,13 @@ public class DataService {
         }
     }
 
-    private void publishCommand(String deviceId, String command, Object params) {
+    /** 返回命令是否被任一通道实际发布（false 表示设备离线 / MQTT 未启用等 no-op） */
+    private boolean publishCommand(String deviceId, String command, Object params) {
         // 1. TCP 通道优先：设备长连接在线时直连下发（低延迟、可回执）
         if (tcpConnectionManager != null) {
             try {
                 if (tcpConnectionManager.publish(deviceId, command, params)) {
-                    return;
+                    return true;
                 }
             } catch (Exception e) {
                 log.warn("TCP command publish failed (non-critical): {}", e.getMessage());
@@ -427,7 +435,7 @@ public class DataService {
         // 2. MQTT 兜底：TCP 不在线时走 MQTT（broker 缓存/重连语义）
         try {
             if (!mqttEnabled || mqttClient == null || !mqttClient.isConnected()) {
-                return;
+                return false;
             }
             String payload = commandMapper.writeValueAsString(
                     Map.of("deviceId", deviceId, "command", command, "params", params,
@@ -435,8 +443,10 @@ public class DataService {
             mqttClient.publish("iot/" + deviceId + "/command",
                     new org.eclipse.paho.client.mqttv3.MqttMessage(payload.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             log.info("MQTT command published: iot/{}/command -> {}", deviceId, payload);
+            return true;
         } catch (Exception e) {
             log.warn("MQTT command publish failed (non-critical): {}", e.getMessage());
+            return false;
         }
     }
 

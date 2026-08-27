@@ -19,9 +19,16 @@ public class WebSocketPushService {
 
     private final SimpMessagingTemplate messagingTemplate;
 
-    /** 推送设备传感器数据更新 */
-    public void pushDeviceData(String deviceId, String sensorId, double value, String unit) {
-        messagingTemplate.convertAndSend("/topic/device/" + deviceId, Map.of(
+    /**
+     * 推送设备传感器数据更新（定向推送给设备归属用户，避免跨用户数据泄露）。
+     * 与 pushAlert 一致，使用 convertAndSendToUser 路由到 /user/{username}/queue/device。
+     */
+    public void pushDeviceData(String username, String deviceId, String sensorId, double value, String unit) {
+        if (username == null || username.isBlank()) {
+            log.warn("设备 {} 数据推送跳过：无法解析归属用户", deviceId);
+            return;
+        }
+        messagingTemplate.convertAndSendToUser(username, "/queue/device", Map.of(
                 "type", "data",
                 "deviceId", deviceId,
                 "sensorId", sensorId,
@@ -31,9 +38,13 @@ public class WebSocketPushService {
         ));
     }
 
-    /** 推送设备状态变更 */
-    public void pushDeviceStatus(String deviceId, String status) {
-        messagingTemplate.convertAndSend("/topic/device/" + deviceId, Map.of(
+    /** 推送设备状态变更（定向推送给设备归属用户，避免跨用户状态泄露） */
+    public void pushDeviceStatus(String username, String deviceId, String status) {
+        if (username == null || username.isBlank()) {
+            log.warn("设备 {} 状态推送跳过：无法解析归属用户", deviceId);
+            return;
+        }
+        messagingTemplate.convertAndSendToUser(username, "/queue/device", Map.of(
                 "type", "status",
                 "deviceId", deviceId,
                 "status", status,

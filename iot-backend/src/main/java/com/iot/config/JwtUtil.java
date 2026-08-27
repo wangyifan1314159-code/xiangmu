@@ -22,25 +22,41 @@ public class JwtUtil {
     public JwtUtil(@Value("${app.jwt.secret:}") String secret,
                    @Value("${app.jwt.expiration-ms}") long expirationMs,
                    @Value("${spring.profiles.active:}") String activeProfiles) {
-        if (StringUtils.hasText(secret)) {
-            this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        } else {
-            // 生产/deploy profile 下必须显式注入 APP_JWT_SECRET，否则拒绝启动
-            // （随机密钥会导致多实例令牌互不兼容、每次发布全员掉线）
-            for (String profile : activeProfiles.split(",")) {
-                if ("deploy".equalsIgnoreCase(profile.trim()) || "prod".equalsIgnoreCase(profile.trim())) {
-                    throw new IllegalStateException(
-                            "生产环境必须通过环境变量 APP_JWT_SECRET 注入 ≥32 字节的 JWT 密钥后才能启动");
-                }
-            }
-            // 开发环境未配置时生成随机密钥：
-            // 不可猜测，但应用重启后已签发的令牌全部失效（需重新登录）
+        String effectiveSecret = StringUtils.hasText(secret) ? secret : "";
+        byte[] secretBytes = effectiveSecret.getBytes(StandardCharsets.UTF_8);
+        boolean devOrTest = isDevOrTestProfile(activeProfiles);
+
+        if (secretBytes.length >= 32) {
+            this.key = Keys.hmacShaKeyFor(secretBytes);
+        } else if (devOrTest) {
+            // 仅 dev/test 环境保留便利：未配置有效密钥时生成随机临时密钥
+            // （不可猜测，但重启后已签发的令牌全部失效，需重新登录）
             byte[] randomBytes = new byte[32];
             new SecureRandom().nextBytes(randomBytes);
             this.key = Keys.hmacShaKeyFor(randomBytes);
-            log.warn("未配置 app.jwt.secret（环境变量 APP_JWT_SECRET），已生成随机临时密钥，重启后所有已登录用户需重新登录");
+            log.warn("dev/test 环境未配置 ≥32 字节的 app.jwt.secret（环境变量 APP_JWT_SECRET），已生成随机临时密钥，重启后所有已登录用户需重新登录");
+        } else {
+            // 非 dev/test 环境：密钥为空或长度不足 32 字节时拒绝启动，
+            // 避免多实例令牌互不兼容、每次发布全员掉线
+            throw new IllegalStateException(
+                    "app.jwt.secret（环境变量 APP_JWT_SECRET）必须配置且长度 ≥32 字节，当前 " + secretBytes.length
+                            + " 字节；拒绝以随机密钥启动");
         }
         this.expirationMs = expirationMs;
+    }
+
+    /** 仅当显式激活 dev/test profile 时才允许回退到随机临时密钥 */
+    private static boolean isDevOrTestProfile(String activeProfiles) {
+        if (activeProfiles == null || activeProfiles.isBlank()) {
+            return false;
+        }
+        for (String profile : activeProfiles.split(",")) {
+            String p = profile.trim();
+            if ("dev".equalsIgnoreCase(p) || "test".equalsIgnoreCase(p)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public String generateToken(String username) {

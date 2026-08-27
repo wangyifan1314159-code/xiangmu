@@ -8,8 +8,12 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/bigdata/analytics")
-// 注意：本服务当前仅返回模拟数据（未接入真实 Doris/TDengine），
-// 接入真实数据源前必须补充认证/鉴权，禁止放开为任意来源可访问
+// 安全说明：本模块未引入 spring-boot-starter-security，当前 /api/bigdata/analytics/** 全部端点
+// 均无认证/鉴权，仅用于内网开发调试。metric-summary 已改为显式返回 501 (未接入 Doris 聚合宽表，
+// 不再返回伪造数据)；device-health / screen-overview 仍返回硬编码示例数据，接入真实数据源前同样
+// 需要替换。对外暴露或接入真实数据源前必须：
+//   1) 引入 spring-boot-starter-security 并配置最小权限 (API-Key / JWT / OAuth2)；
+//   2) 为查询端点补充租户隔离 (tenantId) 校验，禁止任意来源访问。
 public class OlapAnalyticsController {
 
     private final OlapAnalyticsService analyticsService;

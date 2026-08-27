@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, onActivated, onDeactivated, ref } from 'vue'
 import { Connection, Delete, Refresh, VideoPlay, VideoPause } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { realApi } from '../../api/realApi'
@@ -92,14 +92,22 @@ async function stopListener(activePort: number) {
   }
 }
 
+function startPolling() {
+  stopPolling()
+  refreshTimer = setInterval(refresh, 5000)
+}
+function stopPolling() {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = undefined }
+}
+
 onMounted(() => {
   refresh()
-  refreshTimer = setInterval(refresh, 5000)
+  startPolling()
 })
 
-onUnmounted(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
-})
+onActivated(() => { startPolling() })
+onDeactivated(() => { stopPolling() })
+onUnmounted(() => { stopPolling() })
 </script>
 
 <template>

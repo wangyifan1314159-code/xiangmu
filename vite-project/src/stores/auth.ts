@@ -54,6 +54,8 @@ export const useAuthStore = defineStore('auth', () => {
       const result = await api.login(loginUsername, password)
       user.value = result.user as User
       token.value = result.token
+      // 登录成功后（重新）建立 WebSocket，避免登出后重登时 REALTIME OFFLINE
+      useWebSocket().connect()
       return true
     } finally {
       loading.value = false
@@ -70,6 +72,7 @@ export const useAuthStore = defineStore('auth', () => {
       const result = await api.loginByPhone(phone, code)
       user.value = result.user as User
       token.value = result.token
+      useWebSocket().connect()
       return true
     } finally {
       loading.value = false
@@ -88,6 +91,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function logout() {
     // 断开实时推送，避免登出后仍持续接收遥测/告警
+    // disconnect() 内部会同时清空设备/告警回调与订阅注册表，防止残留
     useWebSocket().disconnect()
     // 清空本账号留下的全部本地数据（仅保留主题偏好）
     Object.keys(localStorage)

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iot.model.Device;
 import com.iot.repository.DeviceRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -41,15 +42,21 @@ public class KafkaConsumerService {
 
     @SuppressWarnings("unchecked")
     @KafkaListener(topics = "${app.kafka.topics.device-telemetry}", containerFactory = "kafkaListenerContainerFactory")
-    public void onDeviceTelemetry(String message, Acknowledgment ack) {
+    public void onDeviceTelemetry(ConsumerRecord<String, String> record, Acknowledgment ack) {
+        String deviceId = null;
         try {
-            Map<String, Object> data = objectMapper.readValue(message, Map.class);
-            String deviceId = (String) data.get("deviceId");
+            if (record.value() == null) {
+                log.warn("Kafka telemetry message is null (key={} partition={} offset={}), dropping",
+                        record.key(), record.partition(), record.offset());
+                ack.acknowledge();
+                return;
+            }
+            Map<String, Object> data = objectMapper.readValue(record.value(), Map.class);
+            deviceId = (String) data.get("deviceId");
             String sensorId = (String) data.get("sensorId");
             String sensorType = (String) data.get("sensorType");
             Number rawValue = data.get("value") instanceof Number n ? n : null;
             String unit = (String) data.get("unit");
-            Number rawTimestamp = data.get("timestamp") instanceof Number n ? n : null;
 
             if (deviceId == null || sensorId == null || rawValue == null) {
                 log.warn("Kafka telemetry message missing fields: deviceId={} sensorId={}", deviceId, sensorId);
@@ -73,9 +80,10 @@ public class KafkaConsumerService {
             log.debug("Kafka consumer processed: device={} sensor={} value={}", deviceId, sensorId, rawValue);
             ack.acknowledge();
         } catch (Exception e) {
-            log.error("Kafka consumer failed to process telemetry", e);
-            // 仍然 ack，避免消息堆积阻塞消费
-            ack.acknowledge();
+            // 失败不 ack：交给容器的默认重试/seek 语义重新投递，避免 at-most-once 静默丢数据
+            log.error("Kafka telemetry consumer failed, redelivering: key={} partition={} offset={} deviceId={}",
+                    record.key(), record.partition(), record.offset(), deviceId, e);
+            throw new RuntimeException("Kafka telemetry processing failed (key=" + record.key() + ")", e);
         }
     }
 
@@ -102,8 +110,9 @@ public class KafkaConsumerService {
             }
             ack.acknowledge();
         } catch (Exception e) {
-            log.error("Kafka consumer failed to process status", e);
-            ack.acknowledge();
+            // 失败不 ack：交给容器默认重试/seek 语义，避免静默丢状态更新
+            log.error("Kafka consumer failed to process status, redelivering", e);
+            throw new RuntimeException("Kafka status processing failed", e);
         }
     }
 
@@ -113,8 +122,9 @@ public class KafkaConsumerService {
             log.info("Kafka alert event received: {}", message);
             ack.acknowledge();
         } catch (Exception e) {
-            log.error("Kafka consumer failed to process alert", e);
-            ack.acknowledge();
+            // 失败不 ack：交给容器默认重试/seek 语义，避免静默丢告警事件
+            log.error("Kafka consumer failed to process alert, redelivering", e);
+            throw new RuntimeException("Kafka alert processing failed", e);
         }
     }
 }

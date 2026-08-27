@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'Monitor' })
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, nextTick } from 'vue'
 import { useDeviceStore } from '../../stores/device'
 import { useWebSocket, type WsDeviceData } from '../../stores/websocket'
 import { TrendCharts } from '@element-plus/icons-vue'
@@ -195,6 +195,19 @@ watch(selectedDevice, (dev) => {
   }
 })
 
+function startRealtime() {
+  stopRealtime()
+  deviceStore.startRealtimeUpdates(2000)
+  unsubWsData = useWebSocket().onAllDeviceData(handleWsData)
+  pollTimer = setInterval(pollDeviceData, 10000)
+}
+
+function stopRealtime() {
+  deviceStore.stopRealtimeUpdates()
+  if (unsubWsData) { unsubWsData(); unsubWsData = null }
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+
 onMounted(async () => {
   await deviceStore.fetchDevices()
   if (onlineDevices.value.length > 0 && !selectedDeviceId.value) {
@@ -202,16 +215,15 @@ onMounted(async () => {
     await nextTick()
     initCharts()
   }
-  deviceStore.startRealtimeUpdates(2000)
-  unsubWsData = useWebSocket().onAllDeviceData(handleWsData)
-  pollTimer = setInterval(pollDeviceData, 10000)
+  startRealtime()
   window.addEventListener('resize', handleResize)
 })
 
+onActivated(() => { startRealtime() })
+onDeactivated(() => { stopRealtime() })
+
 onUnmounted(() => {
-  deviceStore.stopRealtimeUpdates()
-  if (unsubWsData) { unsubWsData(); unsubWsData = null }
-  if (pollTimer) clearInterval(pollTimer)
+  stopRealtime()
   window.removeEventListener('resize', handleResize)
   for (const instance of chartInstances.value.values()) {
     instance.dispose()

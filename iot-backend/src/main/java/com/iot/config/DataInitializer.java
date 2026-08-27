@@ -26,7 +26,7 @@ public class DataInitializer implements CommandLineRunner {
     private boolean seedDataEnabled;
 
     /** 测试账号开关：每次启动确保 admin/user 账号存在（存在则不改动，即不会被删除） */
-    @Value("${app.seed-users.enabled:true}")
+    @Value("${app.seed-users.enabled:false}")
     private boolean seedUsersEnabled;
 
     @Override

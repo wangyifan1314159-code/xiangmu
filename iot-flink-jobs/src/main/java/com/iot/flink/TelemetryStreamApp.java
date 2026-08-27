@@ -30,12 +30,13 @@ import java.time.Duration;
 public class TelemetryStreamApp {
     private static final Logger log = LoggerFactory.getLogger(TelemetryStreamApp.class);
 
-    // 迟到数据侧输出流 (直接存入 Iceberg / 历史湖)
+    // 迟到数据侧输出流 (当前仅 .print() 调试输出；TODO: 接入 Iceberg / 历史湖 sink)
     public static final OutputTag<TelemetryEvent> LATE_DATA_TAG = new OutputTag<TelemetryEvent>("late-telemetry-data") {};
 
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        // 开启 Checkpoint 保证 Exactly-Once / At-Least-Once
+        // 开启 Checkpoint 用于故障恢复与状态一致性。当前下游仅为 .print() 调试 sink，
+        // 尚不构成端到端 Exactly-Once；接入真实 sink (Doris/Iceberg) 后再评估精确一次语义。
         env.enableCheckpointing(60000);
         env.setParallelism(2);
 
@@ -48,6 +49,8 @@ public class TelemetryStreamApp {
                 .setBootstrapServers(kafkaBootstrap)
                 .setTopics(topic)
                 .setGroupId("iot-flink-telemetry-group")
+                // TODO: 起始偏移为 latest，进程重启/无 checkpoint 时可能丢消息；
+                // 如需不丢数据，改为 earliest 或依赖 checkpoint/savepoint 从上次位点恢复。
                 .setStartingOffsets(OffsetsInitializer.latest())
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
@@ -64,36 +67,44 @@ public class TelemetryStreamApp {
                         }
                         out.collect(event);
                     } catch (Exception e) {
+                        // TODO: 将解析失败的消息旁路到 DLQ (死信队列)，避免静默丢弃脏数据。
                         log.error("JSON parse failed: {}", json, e);
                     }
-                });
+                })
+                .returns(TelemetryEvent.class);
 
         // 2. 水位线定义 (允许 5 秒数据乱序)
         WatermarkStrategy<TelemetryEvent> watermarkStrategy = WatermarkStrategy
                 .<TelemetryEvent>forBoundedOutOfOrderness(Duration.ofSeconds(5))
-                .withTimestampAssigner((event, timestamp) -> event.getTimestamp());
+                .withTimestampAssigner((event, timestamp) -> event.getTimestamp())
+                // 空闲源检测：单个 Kafka 分区长时间无数据时不再阻塞全局事件时间水位线
+                .withIdleness(Duration.ofSeconds(60));
 
         DataStream<TelemetryEvent> watermarkedStream = rawStream.assignTimestampsAndWatermarks(watermarkStrategy);
 
         // 3. 实时数据质量清洗 (死值检测、极值过滤)
+        // 注：清洗函数内部的 keyed state (last-val / same-val-cnt / flatline-alerted) 已配置
+        // StateTtlConfig，设备停更后自动过期，避免为每台设备永久保留状态。
         SingleOutputStreamOperator<TelemetryEvent> validatedStream = watermarkedStream
                 .keyBy(e -> e.getDeviceId() + "#" + e.getSensorId())
                 .process(new TelemetryQualityProcessFunction());
 
         // 获取脏数据与异常流
         DataStream<TelemetryEvent> dirtyStream = validatedStream.getSideOutput(TelemetryQualityProcessFunction.DIRTY_DATA_TAG);
+        // TODO: 接入真实告警/脏数据 sink (告警服务或 Doris 脏数据表)，当前仅 .print() 调试。
         dirtyStream.print("Dirty-Data-Alert");
 
-        // 4. 实时 1 分钟滚动窗口聚合 (写入 Doris / OLAP 聚合表)
+        // 4. 实时 1 分钟滚动窗口聚合 (TODO: 接入 Doris / OLAP 聚合表 sink，当前仅 .print() 调试)
         SingleOutputStreamOperator<DeviceMetricAgg> oneMinAggStream = validatedStream
                 .keyBy(e -> e.getDeviceId() + "#" + e.getSensorId())
                 .window(TumblingEventTimeWindows.of(Time.minutes(1)))
                 .sideOutputLateData(LATE_DATA_TAG) // 捕获迟到断网重传数据
                 .aggregate(new MetricAggregator(), new MetricWindowFunction());
 
+        // TODO: 接入 Doris / OLAP 聚合表 sink (flink-doris-connector 或 JDBC)，当前仅 .print() 调试。
         oneMinAggStream.print("1min-Agg-To-Doris");
 
-        // 5. 迟到数据旁路流 (写入数据湖 Iceberg，避免数据丢失)
+        // 5. 迟到数据旁路流 (TODO: 接入数据湖 Iceberg sink，避免数据丢失；当前仅 .print() 调试)
         DataStream<TelemetryEvent> lateStream = oneMinAggStream.getSideOutput(LATE_DATA_TAG);
         lateStream.print("Late-Data-To-Iceberg-Lake");
 

@@ -49,6 +49,8 @@ public class Device {
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     @Column(name = "api_key", unique = true, length = 64)
     private String apiKey;
 

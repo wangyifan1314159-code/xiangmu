@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'DataDisplay' })
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed } from 'vue'
 import { useDeviceStore } from '../../stores/device'
 import {
   Monitor, CircleCheck, Odometer, Clock, Refresh, VideoPlay, VideoPause
@@ -101,9 +101,11 @@ onMounted(async () => {
   if (autoRefresh.value) startPolling()
 })
 
-onUnmounted(() => {
-  stopPolling()
+onActivated(() => {
+  if (autoRefresh.value) startPolling()
 })
+onDeactivated(() => { stopPolling() })
+onUnmounted(() => { stopPolling() })
 </script>
 
 <template>

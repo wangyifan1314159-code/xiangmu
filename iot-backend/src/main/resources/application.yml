@@ -83,13 +83,13 @@ management:
 
 app:
   jwt:
-    # 生产必须通过环境变量 APP_JWT_SECRET 注入 ≥32 字节随机密钥；
-    # 留空时应用启动会生成随机临时密钥（重启后令牌失效）
+    # 生产/非 dev 环境必须通过环境变量 APP_JWT_SECRET 注入 ≥32 字节随机密钥；
+    # 留空或长度不足 32 字节时应用将拒绝启动（仅 dev/test 环境允许随机临时密钥）
     secret: ${APP_JWT_SECRET:}
     expiration-ms: 86400000
   auth:
     phone-login:
-      enabled: true   # 未接入真实短信网关前，生产/deploy 环境应关闭
+      enabled: false   # 未接入真实短信网关，验证码仅打印日志；默认关闭（避免手机号自动注册）
   cors:
     allowed-origins: ${APP_CORS_ORIGINS:http://localhost:5173,http://localhost:8080,http://127.0.0.1:5173}
   kafka:
@@ -125,9 +125,9 @@ app:
     alert-debounce-prefix: "alert:debounce:"
   tdengine:   # TDengine 时序数据库配置
     enabled: true  # 开发环境默认关闭，生产开启
-    url: ${TDENGINE_URL:jdbc:TAOS://localhost:6030/iot_telemetry}
+    url: ${TDENGINE_URL:jdbc:TAOS-RS://localhost:6041/iot_telemetry}
     username: ${TDENGINE_USERNAME:root}
-    password: ${TDENGINE_PASSWORD:}
+    password: ${TDENGINE_PASSWORD:taosdata}
     max-pool-size: 10
     batch-size: 1000         # 批量写入行数
     batch-interval-ms: 5000  # 批量写入间隔ms

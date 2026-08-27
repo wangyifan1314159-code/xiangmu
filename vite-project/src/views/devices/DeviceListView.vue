@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'DeviceList' })
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDeviceStore } from '../../stores/device'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -701,15 +701,23 @@ async function refreshAllDevices() {
 
 let listPollTimer: ReturnType<typeof setInterval> | null = null
 
+function startPolling() {
+  stopPolling()
+  listPollTimer = setInterval(() => deviceStore.silentRefreshDevices(), 3000)
+}
+function stopPolling() {
+  if (listPollTimer) { clearInterval(listPollTimer); listPollTimer = null }
+}
+
 onMounted(async () => {
   await deviceStore.fetchDevices()
   checkSimStatus()
-  listPollTimer = setInterval(() => deviceStore.silentRefreshDevices(), 3000)
+  startPolling()
 })
 
-onUnmounted(() => {
-  if (listPollTimer) clearInterval(listPollTimer)
-})
+onActivated(() => { startPolling() })
+onDeactivated(() => { stopPolling() })
+onUnmounted(() => { stopPolling() })
 </script>
 
 <template>

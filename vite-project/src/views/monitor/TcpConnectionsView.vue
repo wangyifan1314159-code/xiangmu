@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Link, CircleCheckFilled, CircleCloseFilled, Delete } from '@element-plus/icons-vue'
+import { api } from '../../api'
 import { realApi } from '../../api/realApi'
 import { useAuthStore } from '../../stores/auth'
 
@@ -27,8 +28,8 @@ async function fetchConnections() {
   loading.value = true
   try {
     const [conns, tcpStatus] = await Promise.all([
-      realApi.getTcpConnections(),
-      realApi.getTcpStatus()
+      api.getTcpConnections(),
+      api.getTcpStatus()
     ])
     connections.value = conns || []
     status.value = tcpStatus || { enabled: false, onlineDevices: 0 }
@@ -77,14 +78,22 @@ async function handleDisconnect(conn: TcpConnection) {
   }
 }
 
+function startPolling() {
+  stopPolling()
+  refreshTimer = setInterval(fetchConnections, 5000) // 每 5 秒刷新
+}
+function stopPolling() {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+}
+
 onMounted(() => {
   fetchConnections()
-  refreshTimer = setInterval(fetchConnections, 5000) // 每 5 秒刷新
+  startPolling()
 })
 
-onUnmounted(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
-})
+onActivated(() => { startPolling() })
+onDeactivated(() => { stopPolling() })
+onUnmounted(() => { stopPolling() })
 </script>
 
 <template>

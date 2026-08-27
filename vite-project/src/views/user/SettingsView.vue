@@ -20,11 +20,7 @@ const settings = ref({
 const saving = ref(false)
 
 function saveSettings() {
-  saving.value = true
-  setTimeout(() => {
-    saving.value = false
-    ElMessage.success('设置已保存')
-  }, 500)
+  ElMessage.warning('该功能暂未实现：后端尚未提供设置保存接口，修改仅在当前页面生效')
 }
 
 function resetDefaults() {

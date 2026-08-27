@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'Dashboard' })
-import { computed, onMounted, onUnmounted, ref, markRaw } from 'vue'
+import { computed, onMounted, onUnmounted, onActivated, onDeactivated, ref, markRaw } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDeviceStore } from '../../stores/device'
 import { realApi } from '../../api/realApi'
@@ -61,19 +61,27 @@ function updateStats() {
 }
 function go(path: string) { router.push(path) }
 
+function startPolling() {
+  stopPolling()
+  deviceStore.startRealtimeUpdates(5000)
+  updateTimer = setInterval(updateStats, 5000)
+  alertTimer = setInterval(fetchRecentAlerts, 15000)
+}
+function stopPolling() {
+  deviceStore.stopRealtimeUpdates()
+  if (updateTimer) { clearInterval(updateTimer); updateTimer = undefined }
+  if (alertTimer) { clearInterval(alertTimer); alertTimer = undefined }
+}
+
 onMounted(async () => {
   await deviceStore.fetchDevices()
   updateStats()
   await fetchRecentAlerts()
-  deviceStore.startRealtimeUpdates(5000)
-  updateTimer = setInterval(updateStats, 5000)
-  alertTimer = setInterval(fetchRecentAlerts, 15000)
+  startPolling()
 })
-onUnmounted(() => {
-  deviceStore.stopRealtimeUpdates()
-  if (updateTimer) clearInterval(updateTimer)
-  if (alertTimer) clearInterval(alertTimer)
-})
+onActivated(() => { startPolling() })
+onDeactivated(() => { stopPolling() })
+onUnmounted(() => { stopPolling() })
 </script>
 
 <template>

@@ -31,7 +31,7 @@ public class AuthService implements UserDetailsService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
 
-    @Value("${app.auth.phone-login.enabled:true}")
+    @Value("${app.auth.phone-login.enabled:false}")
     private boolean phoneLoginEnabled;
 
     // 内存验证码存储：电话->{代码，时间戳，剩余尝试次数}
@@ -50,6 +50,9 @@ public class AuthService implements UserDetailsService {
     private static final long LOGIN_LOCK_MS = 10 * 60 * 1000; // 锁 10 分钟
 
     private final SecureRandom secureRandom = new SecureRandom();
+
+    /** 用于恒定时间登录校验的哑哈希（账号不存在时也执行一次同成本的 BCrypt 比对） */
+    private static final String DUMMY_BCRYPT_HASH = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 
     public void sendVerificationCode(String phone) {
         if (!phoneLoginEnabled) {
@@ -96,7 +99,7 @@ public class AuthService implements UserDetailsService {
         User user = userRepository.findByPhone(phone).orElseGet(() -> {
             // 自动注册的账号使用随机密码（该账号仅可通过手机验证码登录）
             User newUser = User.builder()
-                    .username("用户" + phone.substring(phone.length() - 4))
+                    .username("用户" + phone)
                     .email(phone + "@iot.com")
                     .phone(phone)
                     .password(passwordEncoder.encode(randomToken()))
@@ -137,8 +140,12 @@ public class AuthService implements UserDetailsService {
             loginFailures.remove(username);
         }
 
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
+        User user = userRepository.findByUsername(username).orElse(null);
+        if (user == null) {
+            // 账号不存在时也执行一次同成本的 BCrypt 比对，避免通过响应时间枚举用户名
+            passwordEncoder.matches(request.getPassword(), DUMMY_BCRYPT_HASH);
+            throw new RuntimeException("用户名或密码错误");
+        }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             recordLoginFailure(username);

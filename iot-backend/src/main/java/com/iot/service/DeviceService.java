@@ -5,6 +5,7 @@ import com.iot.dto.DeviceRequest;
 import com.iot.dto.SensorDTO;
 import com.iot.model.Device;
 import com.iot.model.Sensor;
+import com.iot.repository.AlertRecordRepository;
 import com.iot.repository.DeviceRepository;
 import com.iot.repository.DataPointRepository;
 import com.iot.repository.CommandLogRepository;
@@ -27,6 +28,7 @@ public class DeviceService {
     private final DeviceRepository deviceRepository;
     private final DataPointRepository dataPointRepository;
     private final CommandLogRepository commandLogRepository;
+    private final AlertRecordRepository alertRecordRepository;
     private final SecurityUtils securityUtils;
 
     /** 启动时给所有缺失 API Key 的旧设备补发 */
@@ -103,7 +105,9 @@ public class DeviceService {
             device.getSensors().clear();
             for (SensorDTO s : request.getSensors()) {
                 Sensor sensor = buildSensor(s, device);
-                if (s.getId() != null) sensor.setId(s.getId());
+                // 不信任客户端传入的 sensor ID：服务端统一重新生成，
+                // 避免跨设备主键冲突或 clear+重加 导致的 detach/merge 问题
+                sensor.setId("s_" + UUID.randomUUID().toString().substring(0, 6));
                 device.addSensor(sensor);
             }
         }
@@ -120,9 +124,12 @@ public class DeviceService {
 
     @Transactional
     public void deleteDevice(String deviceId) {
-        Long ownerId = currentUserId();
+        // 先做归属校验：设备不存在或非本人所有时抛错，避免静默"删除成功"的假象
+        Device device = getDeviceById(deviceId);
+        Long ownerId = device.getOwnerId();
         dataPointRepository.deleteByDeviceIdAndOwnerId(deviceId, ownerId);
         commandLogRepository.deleteByDeviceIdAndOwnerId(deviceId, ownerId);
+        alertRecordRepository.deleteByDeviceIdAndOwnerId(deviceId, ownerId);
         deviceRepository.deleteByDeviceIdAndOwnerId(deviceId, ownerId);
     }
 

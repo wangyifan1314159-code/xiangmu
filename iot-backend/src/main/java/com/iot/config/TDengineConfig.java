@@ -30,7 +30,13 @@ public class TDengineConfig {
         config.setJdbcUrl(url);
         config.setUsername(username);
         config.setPassword(password);
-        config.setDriverClassName("com.taosdata.jdbc.TSDBDriver");
+        if (url.startsWith("jdbc:TAOS-RS:")) {
+            config.setDriverClassName("com.taosdata.jdbc.rs.RestfulDriver");
+        } else if (url.startsWith("jdbc:TAOS-WS:")) {
+            config.setDriverClassName("com.taosdata.jdbc.ws.WebsocketDriver");
+        } else {
+            config.setDriverClassName("com.taosdata.jdbc.TSDBDriver");
+        }
         config.setMaximumPoolSize(maxPoolSize);
         config.setMinimumIdle(0);
         config.setIdleTimeout(300000);

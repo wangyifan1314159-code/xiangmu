@@ -178,17 +178,34 @@ export const realApi = {
 
   async getDeviceData(deviceId?: string, sensorId?: string, limit: number = 200,
                        from?: string, to?: string) {
-    if (!deviceId) {
-      const devRes = await http.get('/devices')
-      const devices = devRes.data.data
-      if (devices.length === 0) return []
-      deviceId = devices[0].deviceId
+    const buildParams = (perDeviceLimit: number = limit) => {
+      const params: any = { limit: perDeviceLimit }
+      if (sensorId) params.sensorId = sensorId
+      if (from) params.from = from
+      if (to) params.to = to
+      return params
     }
-    const params: any = { limit }
-    if (sensorId) params.sensorId = sensorId
-    if (from) params.from = from
-    if (to) params.to = to
-    const res = await http.get(`/data/${deviceId}`, { params })
+
+    if (!deviceId) {
+      // 未指定设备：聚合全部设备的数据，保留“查询全部设备”语义，
+      // 不再静默只返回第一台设备的数据行。
+      const devRes = await http.get('/devices')
+      const devices: any[] = devRes.data.data || []
+      if (!Array.isArray(devices) || devices.length === 0) return []
+      const perDeviceLimit = Math.max(1, Math.ceil(limit / devices.length))
+      const results = await Promise.all(devices.map(async (d: any) => {
+        try {
+          const res = await http.get(`/data/${d.deviceId}`, { params: buildParams(perDeviceLimit) })
+          return res.data.data || []
+        } catch {
+          // 单台设备查询失败不应拖垮“全部设备”视图，跳过该设备
+          return []
+        }
+      }))
+      return results.flat().slice(0, limit)
+    }
+
+    const res = await http.get(`/data/${deviceId}`, { params: buildParams() })
     return res.data.data
   },
 

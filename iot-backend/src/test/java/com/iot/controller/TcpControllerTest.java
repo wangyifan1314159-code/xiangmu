@@ -59,6 +59,7 @@ class TcpControllerTest {
     @Test
     void disabledTcpManagersHaveEmptyLists() {
         TcpController controller = new TcpController(securityUtils, null);
+        when(securityUtils.hasRole("ADMIN")).thenReturn(true);
 
         assertEquals(List.of(), controller.listeners().getData());
     }

@@ -2,6 +2,7 @@ package com.iot.dataservice;
 
 import com.iot.dataservice.service.OlapAnalyticsService;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
@@ -12,12 +13,10 @@ public class OlapAnalyticsServiceTest {
 
     @Test
     public void testQueryMetricSummary() {
-        Map<String, Object> result = service.queryMetricSummary("INDUSTRIAL_GATEWAY", "1h", "7d");
-        assertNotNull(result);
-        assertEquals("INDUSTRIAL_GATEWAY", result.get("productType"));
-        assertTrue(result.containsKey("trend"));
-        List<?> trend = (List<?>) result.get("trend");
-        assertFalse(trend.isEmpty());
+        // metric-summary 尚未接入真实 Doris：应显式抛出 501 而非返回伪造数据
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> service.queryMetricSummary("INDUSTRIAL_GATEWAY", "1h", "7d"));
+        assertEquals(501, ex.getStatusCode().value());
     }
 
     @Test

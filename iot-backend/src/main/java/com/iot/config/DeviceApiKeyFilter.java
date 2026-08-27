@@ -32,33 +32,48 @@ public class DeviceApiKeyFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String apiKey = request.getHeader("X-Api-Key");
-
-        if (StringUtils.hasText(apiKey)) {
-            // 设备密钥只授予数据面权限（遥测上报/查询），不得以 owner 身份访问其余 API
-            if (!request.getRequestURI().startsWith("/api/data/")) {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED,
-                        "API Key 仅允许访问 /api/data/** 路径");
-                return;
-            }
-            Optional<Device> deviceOpt = deviceRepository.findByApiKey(apiKey);
-            if (deviceOpt.isPresent()) {
-                Device device = deviceOpt.get();
-                Optional<User> userOpt = userRepository.findById(device.getOwnerId());
-                if (userOpt.isPresent()) {
-                    User user = userOpt.get();
-                    // principal 使用 owner 用户名，便于按 owner 解析数据归属；
-                    // 权限固定为 ROLE_DEVICE（最小权限，见 DataService.requireOwnedDevice）
-                    UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(
-                                    user.getUsername(), null,
-                                    Collections.singletonList(new SimpleGrantedAuthority("ROLE_DEVICE")));
-                    SecurityContextHolder.getContext().setAuthentication(authentication);
-                    request.setAttribute("deviceId", device.getDeviceId());
-                }
-            }
+        // 仅在设备数据面路径上处理 API Key；其余路径直接放行，交由 JWT 过滤器与授权规则处理
+        if (!isDeviceDataPath(request)) {
+            filterChain.doFilter(request, response);
+            return;
         }
 
+        String apiKey = request.getHeader("X-Api-Key");
+        // 未携带 API Key：回退到 JWT 认证（普通用户/管理员访问数据面）
+        if (!StringUtils.hasText(apiKey)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        Optional<Device> deviceOpt = deviceRepository.findByApiKey(apiKey);
+        if (deviceOpt.isEmpty()) {
+            // 携带了 API Key 但无效：直接 401，不再静默放行
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "无效的 API Key");
+            return;
+        }
+
+        Device device = deviceOpt.get();
+        Optional<User> userOpt = userRepository.findById(device.getOwnerId());
+        if (userOpt.isEmpty()) {
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "设备未绑定有效用户");
+            return;
+        }
+
+        User user = userOpt.get();
+        // principal 使用 owner 用户名，便于按 owner 解析数据归属；
+        // 权限固定为 ROLE_DEVICE（最小权限，见 DataService.requireOwnedDevice）
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(
+                        user.getUsername(), null,
+                        Collections.singletonList(new SimpleGrantedAuthority("ROLE_DEVICE")));
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+        request.setAttribute("deviceId", device.getDeviceId());
+
         filterChain.doFilter(request, response);
+    }
+
+    /** 设备 API Key 仅允许访问 /api/data/** 数据面路径 */
+    private boolean isDeviceDataPath(HttpServletRequest request) {
+        return request.getRequestURI().startsWith("/api/data/");
     }
 }

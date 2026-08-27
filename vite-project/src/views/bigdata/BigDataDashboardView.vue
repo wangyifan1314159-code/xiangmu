@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, onActivated, onDeactivated, ref } from 'vue'
 import { useDeviceStore } from '../../stores/device'
 import { realApi } from '../../api/realApi'
+import { ElMessage } from 'element-plus'
 import { DataAnalysis, Refresh, WarningFilled, Connection, CircleCheck } from '@element-plus/icons-vue'
 
 const deviceStore = useDeviceStore()
@@ -13,17 +14,37 @@ const onlineRate = computed(() => deviceStore.totalCount ? Math.round(deviceStor
 const healthRows = computed(() => deviceStore.devices.slice(0, 6).map(device => ({ id: device.id, name: device.name, status: device.status })))
 const triggeredAlerts = computed(() => alertStats.value.triggered || alertStats.value.TRIGGERED || 0)
 
+let hasShownError = false
+
 async function refresh() {
   loading.value = true
   try {
     const [, stats] = await Promise.all([deviceStore.fetchDevices(), realApi.getAlertStats()])
     alertStats.value = stats || {}
+    hasShownError = false
+  } catch (e: any) {
+    // 轮询每 15 秒触发一次，仅在错误状态切换时提示一次，避免刷屏
+    if (!hasShownError) {
+      ElMessage.error('数据刷新失败: ' + (e?.message || '未知错误'))
+      hasShownError = true
+    }
   } finally { loading.value = false }
 }
 function statusLabel(status: string) { return status === 'online' ? '在线' : status === 'warning' ? '告警' : '离线' }
 function statusType(status: string) { return status === 'online' ? 'success' : status === 'warning' ? 'warning' : 'info' }
-onMounted(() => { refresh(); refreshTimer = setInterval(refresh, 15000) })
-onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
+
+function startPolling() {
+  stopPolling()
+  refreshTimer = setInterval(refresh, 15000)
+}
+function stopPolling() {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = undefined }
+}
+
+onMounted(() => { refresh(); startPolling() })
+onActivated(() => { startPolling() })
+onDeactivated(() => { stopPolling() })
+onUnmounted(() => { stopPolling() })
 </script>
 
 <template>

@@ -24,10 +24,28 @@ async function load() {
     records.value = result?.content || []
     total.value = result?.totalElements || 0
     stats.value = summary || {}
+  } catch (e: any) {
+    ElMessage.error('加载告警失败: ' + (e?.message || '未知错误'))
   } finally { loading.value = false }
 }
-async function acknowledge(row: any) { await realApi.acknowledgeAlert(row.id); ElMessage.success('告警已确认'); load() }
-async function resolve(row: any) { await realApi.resolveAlert(row.id); ElMessage.success('告警已解决'); load() }
+async function acknowledge(row: any) {
+  try {
+    await realApi.acknowledgeAlert(row.id)
+    ElMessage.success('告警已确认')
+    load()
+  } catch (e: any) {
+    ElMessage.error('确认告警失败: ' + (e?.message || '未知错误'))
+  }
+}
+async function resolve(row: any) {
+  try {
+    await realApi.resolveAlert(row.id)
+    ElMessage.success('告警已解决')
+    load()
+  } catch (e: any) {
+    ElMessage.error('解决告警失败: ' + (e?.message || '未知错误'))
+  }
+}
 function levelType(value: string) { return value === 'CRITICAL' ? 'danger' : value === 'WARNING' ? 'warning' : 'info' }
 function levelLabel(value: string) { return value === 'CRITICAL' ? '严重' : value === 'WARNING' ? '警告' : '提示' }
 function formatTime(value: string) { return value ? new Date(value).toLocaleString() : '--' }

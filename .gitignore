@@ -32,6 +32,7 @@ test_code/
 # AI 工具状态目录
 .mimosa/
 .zcode/
+.agent-teams/
 /.worktrees/
 
 # Agent 规划文档（AI 生成，不入库）

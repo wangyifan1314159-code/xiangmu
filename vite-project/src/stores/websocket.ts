@@ -98,13 +98,28 @@ function subscribeAll() {
 }
 
 export function useWebSocket() {
-  function connect() {
-    if (!SockJS || !Client) return  // 库未加载，静默降级
-    if (stompClient?.active) return
+  /** 清空所有模块级注册表（回调、已登记订阅），用于登出/断开时防泄漏 */
+  function clearRegistries() {
+    deviceCallbacks.clear()
+    alertCallbacks.clear()
+    subscribedDevices.clear()
+    deviceSubscriptions.clear()
+  }
+
+  function connect(): boolean {
+    if (!SockJS || !Client) {
+      console.warn('[WS] STOMP/SockJS 库未加载，无法建立实时连接')
+      connected.value = false
+      return false
+    }
+    if (stompClient?.active) return true
 
     // 服务端要求 STOMP CONNECT 帧携带有效 JWT，未登录不建立连接
     const token = localStorage.getItem('iot_token')
-    if (!token) return
+    if (!token) {
+      console.info('[WS] 未登录，跳过 WebSocket 连接')
+      return false
+    }
 
     const baseUrl = window.location.protocol + '//' + window.location.host
     try {
@@ -123,16 +138,28 @@ export function useWebSocket() {
           connected.value = false
           deviceSubscriptions.clear()
         },
-        onStompError: () => { /* ignore */ }
+        onWebSocketClose: () => {
+          connected.value = false
+          console.warn('[WS] WebSocket 连接已关闭')
+        },
+        onStompError: (frame: any) => {
+          connected.value = false
+          console.error('[WS] STOMP 错误:', frame?.headers?.message || frame?.body || '未知错误')
+        }
       })
       stompClient.activate()
-    } catch { /* WebSocket 不可用时静默降级到轮询 */ }
+      return true
+    } catch (e) {
+      connected.value = false
+      console.error('[WS] WebSocket 初始化失败:', e)
+      return false
+    }
   }
 
   function disconnect() {
     try { stompClient?.deactivate() } catch { /* ignore */ }
     connected.value = false
-    deviceSubscriptions.clear()
+    clearRegistries()
   }
 
   function onDeviceData(deviceId: string, fn: (data: WsDeviceData) => void) {
@@ -153,6 +180,7 @@ export function useWebSocket() {
   return {
     connected, connect, disconnect,
     subscribeDevice, subscribeDevices, unsubscribeDevice,
-    onDeviceData, onAllDeviceData, onAlert
+    onDeviceData, onAllDeviceData, onAlert,
+    reset: clearRegistries
   }
 }

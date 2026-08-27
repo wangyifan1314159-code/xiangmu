@@ -26,6 +26,8 @@ public class User {
     @Column(unique = true, length = 20)
     private String phone;
 
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     @Column(nullable = false)
     private String password;
 

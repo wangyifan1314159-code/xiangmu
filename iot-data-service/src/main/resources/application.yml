@@ -1,4 +1,4 @@
-﻿server:
+server:
   port: 8082
 
 spring:
@@ -12,5 +12,5 @@ spring:
 app:
   doris:
     url: jdbc:mysql://${DORIS_HOST:localhost}:9030/iot_lakehouse
-    username: root
-    password: ""
+    username: ${DORIS_USERNAME:}
+    password: ${DORIS_PASSWORD:}

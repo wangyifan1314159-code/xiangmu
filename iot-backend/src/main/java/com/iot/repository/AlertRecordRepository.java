@@ -39,6 +39,9 @@ public interface AlertRecordRepository extends JpaRepository<AlertRecord, Long> 
     @Query("SELECT COUNT(a) FROM AlertRecord a WHERE a.ownerId = :ownerId")
     long countByOwnerId(@Param("ownerId") Long ownerId);
 
+    // 删除设备时清理其告警记录（按归属过滤，避免误删他人数据）
+    void deleteByDeviceIdAndOwnerId(String deviceId, Long ownerId);
+
 //    最近告警列表，获取最近的20条告警记录，按触发时间倒序排列
     List<AlertRecord> findTop20ByOrderByTriggeredAtDesc();
 }
