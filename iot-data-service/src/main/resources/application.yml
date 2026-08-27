@@ -8,8 +8,21 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKER:localhost:9092}
+    consumer:
+      group-id: iot-data-service-group
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 app:
+  kafka:
+    enabled: ${APP_KAFKA_ENABLED:true}
+    topics:
+      device-agg: device.metric.agg.v1
+      device-telemetry: device.telemetry.v1
+      alert-events: alert.events.v1
   doris:
     url: jdbc:mysql://${DORIS_HOST:localhost}:9030/iot_lakehouse
     username: ${DORIS_USERNAME:}
