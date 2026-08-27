@@ -28,7 +28,8 @@ import {
   VideoCamera,
   WarningFilled,
   CircleCheckFilled,
-  InfoFilled
+  InfoFilled,
+  MagicStick
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -124,7 +125,9 @@ const breadcrumb = computed(() => {
     }
   }
   const nameMap: Record<string, string> = {
-    '/dashboard': '数据大屏',
+    '/dashboard': '概览',
+    '/bigdata': '数据大屏',
+    '/ai-assistant': 'AI辅助系统',
     '/devices': '设备管理',
     '/monitor': '实时监控',
     '/video': '视频监控',
@@ -146,9 +149,9 @@ const breadcrumb = computed(() => {
 const menuItems = [
   { path: '/dashboard', title: '概览', icon: Odometer },
   { path: '/bigdata', title: '数据大屏', icon: DataLine },
+  { path: '/ai-assistant', title: 'AI辅助系统', icon: MagicStick },
   { path: '/devices', title: '设备中心', icon: Cpu },
   { path: '/monitor', title: '实时监控', icon: TrendCharts },
-  { path: '/video', title: '视频监控', icon: VideoCamera },
   { path: '/data', title: '数据中心', icon: DataAnalysis },
   { path: '/alerts', title: '报警中心', icon: Bell },
   { path: '/connections', title: '设备接入', icon: Connection },

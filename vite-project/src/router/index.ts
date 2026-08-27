@@ -34,6 +34,12 @@ const router = createRouter({
           meta: { title: '大数据湖仓大屏', icon: 'Histogram' }
         },
         {
+          path: 'ai-assistant',
+          name: 'AiAssistant',
+          component: () => import('../views/ai/AiAssistantView.vue'),
+          meta: { title: 'AI辅助系统', icon: 'MagicStick' }
+        },
+        {
           path: 'devices',
           name: 'Devices',
           component: () => import('../views/devices/DeviceListView.vue'),

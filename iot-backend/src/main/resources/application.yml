@@ -90,6 +90,10 @@ app:
   auth:
     phone-login:
       enabled: false   # 未接入真实短信网关，验证码仅打印日志；默认关闭（避免手机号自动注册）
+  alert:
+    methane:
+      threshold-ppm: ${APP_ALERT_METHANE_THRESHOLD:10000.0}   # 煤矿安全规程上限 1.0% = 10000 ppm
+      consecutive-frames: ${APP_ALERT_METHANE_CONSECUTIVE:3}  # 连续 3 帧超限防抖判定
   cors:
     allowed-origins: ${APP_CORS_ORIGINS:http://localhost:5173,http://localhost:8080,http://127.0.0.1:5173}
   kafka:
@@ -118,6 +122,7 @@ app:
     max-devices-per-gateway: ${APP_TCP_MAX_DEVICES:256}
     max-frame-length: 65536               # 单帧最大字节数（防超大包）
     auth-timeout-seconds: 30              # 未完成鉴权的连接 N 秒后断开
+    read-idle-seconds: 90                 # 已认证设备读空闲超时（秒）；设备端应每 60s 发一次 heartbeat；0=禁用
     read-timeout-seconds: 0               # 0 = 不强制读超时；>0 时超过该时长无数据即断开（低频设备请设 0）
   redis: # 数据缓存
     enabled: true

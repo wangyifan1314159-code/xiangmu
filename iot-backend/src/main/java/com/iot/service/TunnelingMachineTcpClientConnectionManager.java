@@ -43,15 +43,18 @@ public class TunnelingMachineTcpClientConnectionManager implements AutoCloseable
     private final boolean allowPrivateTargets;
     private final DeviceRepository deviceRepository;
     private final DataService dataService;
+    private final MethaneAlertService methaneAlertService;
     private final ExecutorService persistenceExecutor = Executors.newSingleThreadExecutor();
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
 
     public TunnelingMachineTcpClientConnectionManager(
             DeviceRepository deviceRepository, DataService dataService,
+            MethaneAlertService methaneAlertService,
             @Value("${app.tcp.client-connect-timeout-millis:5000}") int connectTimeoutMillis,
             @Value("${app.tcp.allow-private-targets:true}") boolean allowPrivateTargets) {
         this.deviceRepository = deviceRepository;
         this.dataService = dataService;
+        this.methaneAlertService = methaneAlertService;
         this.allowPrivateTargets = allowPrivateTargets;
         this.connectTimeoutMillis = connectTimeoutMillis;
     }
@@ -77,6 +80,14 @@ public class TunnelingMachineTcpClientConnectionManager implements AutoCloseable
 
     public List<Map<String, Object>> listConnections() {
         return sessions.entrySet().stream().map(entry -> entry.getValue().snapshot(entry.getKey())).toList();
+    }
+
+    public List<Map<String, Object>> listConnectionsByOwner(Long ownerId) {
+        if (ownerId == null) return List.of();
+        return sessions.entrySet().stream()
+                .filter(entry -> ownerId.equals(entry.getValue().ownerId()))
+                .map(entry -> entry.getValue().snapshot(entry.getKey()))
+                .toList();
     }
 
     public boolean disconnect(String id) {
@@ -126,7 +137,25 @@ public class TunnelingMachineTcpClientConnectionManager implements AutoCloseable
         readings.forEach(reading -> {
             SensorTarget target = session.sensors.get(reading.key());
             if (target != null) dataService.writeDataPoint(session.deviceId(), target.id(), target.type(), reading.value(), target.unit(), session.ownerId());
+
+            // 任务三：接收并解析出甲烷浓度后立即进行超限判定与告警
+            if ("methane".equals(reading.key()) && methaneAlertService != null) {
+                String rawFrameJson = String.format(
+                        "{\"function\":\"0x%04X\",\"deviceId\":\"%s\",\"deviceName\":\"%s\",\"methane\":%.1f,\"timestamp\":\"%s\",\"rawHex\":\"%s\"}",
+                        frame.function(), session.deviceId(), session.deviceName(), reading.value(),
+                        java.time.LocalDateTime.now(), bytesToHex(frame.data()));
+                methaneAlertService.checkAndAlert(session.deviceId(), session.deviceName(), session.ownerId(), reading.value(), rawFrameJson);
+            }
         });
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        if (bytes == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString().trim();
     }
 
     static List<Reading> decode(TunnelingMachineFrameDecoder.Frame frame) {
@@ -254,7 +283,7 @@ public class TunnelingMachineTcpClientConnectionManager implements AutoCloseable
         private Bootstrap bootstrap;
         private volatile Channel channel; private volatile long lastFrameAt;
         private Session(String host, int port, InetSocketAddress target, Device device, Map<String, SensorTarget> sensors) { this.host = host; this.port = port; this.target = target; this.deviceId = device.getDeviceId(); this.deviceName = device.getName(); this.ownerId = device.getOwnerId(); this.sensors = sensors; }
-        private InetSocketAddress target() { return target; } private String deviceId() { return deviceId; } private Long ownerId() { return ownerId; }
+        private InetSocketAddress target() { return target; } private String deviceId() { return deviceId; } private String deviceName() { return deviceName; } private Long ownerId() { return ownerId; }
         private void clear(Channel expected) { if (channel == expected) channel = null; }
         private void stop() { stopped.set(true); if (channel != null) channel.close(); }
         private Map<String, Object> snapshot(String id) { Map<String, Object> value = new LinkedHashMap<>(); value.put("id", id); value.put("host", host); value.put("port", port); value.put("deviceId", deviceId); value.put("deviceName", deviceName); value.put("status", channel != null && channel.isActive() ? "CONNECTED" : "RECONNECTING"); value.put("remoteAddress", channel == null || channel.remoteAddress() == null ? "" : channel.remoteAddress().toString()); value.put("lastFrameAt", lastFrameAt); value.put("validFrameCount", validFrames.get()); value.put("invalidFrameCount", invalidFrames.get()); value.put("unknownFrameCount", unknownFrames.get()); return value; }

@@ -43,6 +43,12 @@ public class TcpServerConfig {
     @Value("${app.tcp.auth-timeout-seconds:30}")
     private int authTimeoutSeconds;
 
+    /** 已认证设备的读空闲超时（秒）。
+     *  设备端应每 60 秒发一次 heartbeat，该值应 > 60。
+     *  设置为 0 时禁用（不推荐生产使用）。 */
+    @Value("${app.tcp.read-idle-seconds:90}")
+    private int readIdleSeconds;
+
     private final TcpMessageHandler messageHandler;
 
     private EventLoopGroup bossGroup;

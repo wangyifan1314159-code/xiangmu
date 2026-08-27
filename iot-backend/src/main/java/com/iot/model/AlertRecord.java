@@ -56,4 +56,22 @@ public class AlertRecord {
 
     @Column(name = "owner_id")
     private Long ownerId;
+
+    // ========== 甲烷超限告警专用字段（内置规则，无需 AlertRule 配置） ==========
+
+    /** 触发告警的传感器类型，如 "methane" */
+    @Column(name = "sensor_type", length = 64)
+    private String sensorType;
+
+    /** 触发告警时的传感器数值（如甲烷 ppm） */
+    @Column(name = "sensor_value")
+    private Double sensorValue;
+
+    /** 判断时使用的阈值（单位与 sensorValue 一致） */
+    @Column(name = "threshold_value")
+    private Double thresholdValue;
+
+    /** 触发告警的原始数据帧摘要（JSON 格式，便于追溯原始数据） */
+    @Column(name = "raw_frame", columnDefinition = "TEXT")
+    private String rawFrame;
 }

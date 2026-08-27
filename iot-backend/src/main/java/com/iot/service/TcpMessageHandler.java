@@ -69,6 +69,14 @@ public class TcpMessageHandler extends SimpleChannelInboundHandler<String> {
     @Value("${app.tcp.max-devices-per-gateway:256}")
     private int maxDevicesPerGateway;
 
+    /**
+     * 已认证设备的读空闲超时（秒）。认证成功后替换 pipeline 中的 IdleStateHandler，
+     * 从 auth-timeout 切换为更长的 read-idle 超时，防止正常低频设备被误断。
+     * 设备端应每 60 秒发一次 {"type":"heartbeat"}，此值应 > 60，默认 90。
+     */
+    @Value("${app.tcp.read-idle-seconds:90}")
+    private int readIdleSeconds;
+
     public TcpMessageHandler(ObjectMapper objectMapper,
                              DeviceRepository deviceRepository,
                              DataService dataService,
@@ -99,6 +107,7 @@ public class TcpMessageHandler extends SimpleChannelInboundHandler<String> {
             case "telemetry" -> handleTelemetry(ctx, msg);
             case "status" -> handleStatus(ctx, msg);
             case "command_result" -> handleCommandResult(ctx, msg);
+            case "heartbeat" -> handleHeartbeat(ctx, msg);
             default -> sendJson(ctx, Map.of("type", "error", "message", "未知消息类型: " + type));
         }
     }
@@ -149,6 +158,8 @@ public class TcpMessageHandler extends SimpleChannelInboundHandler<String> {
                 deviceRepository.save(device);
             });
         }
+        // 网关认证成功后：切换为已认证读超时
+        replaceIdleHandler(ctx);
         sendJson(ctx, Map.of("type", "gateway_auth_result", "success", true,
                 "gatewayId", gatewayId, "deviceIds", deviceIds, "message", "网关认证成功"));
         log.info("TCP gateway authenticated: {} ({} devices)", gatewayId, deviceIds.size());
@@ -189,6 +200,10 @@ public class TcpMessageHandler extends SimpleChannelInboundHandler<String> {
         } catch (Exception e) {
             log.warn("TCP auth: update device status failed: {}", e.getMessage());
         }
+
+        // 认证成功后：将 pipeline 中的 IdleStateHandler 替换为已认证读超时
+        // auth-timeout（30s）→ read-idle-seconds（90s），低频设备每 60s 发心跳即可保活
+        replaceIdleHandler(ctx);
 
         sendJson(ctx, Map.of(
                 "type", "auth_result",
@@ -259,6 +274,32 @@ public class TcpMessageHandler extends SimpleChannelInboundHandler<String> {
         // 可选：此处可扩展将回执写入 CommandLog / Redis，当前仅记录日志
     }
 
+    // ========== 心跳 ==========
+
+    /**
+     * 处理设备心跳消息，防止中间网络（NAT/防火墙）因长时间无数据包而超时断开连接。
+     * 建议设备每 60 秒发一次心跳：{"type":"heartbeat"}
+     * 服务端回复：{"type":"heartbeat_ack","timestamp":...}
+     */
+    private void handleHeartbeat(ChannelHandlerContext ctx, Map<String, Object> msg) {
+        String deviceId = resolveDeviceId(ctx.channel(), msg);
+        if (deviceId == null) {
+            // 未认证设备发心跳：忽略，等待 auth-timeout 关闭
+            return;
+        }
+        // 更新设备最近活跃时间（异步，避免阻塞 Netty I/O 线程）
+        try {
+            deviceRepository.findByDeviceId(deviceId).ifPresent(device -> {
+                device.setLastActive(java.time.LocalDateTime.now());
+                deviceRepository.save(device);
+            });
+        } catch (Exception e) {
+            log.debug("TCP heartbeat: update lastActive failed (non-critical): {}", e.getMessage());
+        }
+        sendJson(ctx, Map.of("type", "heartbeat_ack", "timestamp", System.currentTimeMillis()));
+        log.debug("TCP heartbeat: device={}", deviceId);
+    }
+
     // ========== 生命周期 ==========
 
     @Override
@@ -286,7 +327,14 @@ public class TcpMessageHandler extends SimpleChannelInboundHandler<String> {
         if (evt instanceof IdleStateEvent event && event.state() == IdleState.READER_IDLE) {
             String deviceId = ctx.channel().attr(ATTR_DEVICE_ID).get();
             if (deviceId == null) {
+                // 未认证连接：auth-timeout-seconds 内未完成鉴权，断开
                 log.info("TCP connection {} closed: auth timeout", ctx.channel().remoteAddress());
+                ctx.close();
+            } else {
+                // 已认证设备：read-idle-seconds 内无任何数据（遥测/心跳），断开连接
+                // channelInactive() 会将设备标记为 OFFLINE
+                // 设备应重新建立连接并认证；建议设备端每 60s 发一次 {"type":"heartbeat"}
+                log.info("TCP device {} closed: read idle timeout (no data/heartbeat received)", deviceId);
                 ctx.close();
             }
         }
@@ -305,6 +353,27 @@ public class TcpMessageHandler extends SimpleChannelInboundHandler<String> {
         } catch (Exception e) {
             log.warn("TCP send failed: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 认证成功后替换 pipeline 中的 IdleStateHandler，
+     * 从"鉴权超时"（auth-timeout-seconds，30s）切换为"已认证读空闲超时"（read-idle-seconds，90s）。
+     * <p>
+     * 两阶段超时策略：
+     * <ul>
+     *   <li>认证阶段：30s 内未完成鉴权 → 关闭连接</li>
+     *   <li>已认证阶段：90s 内无任何数据（含心跳）→ 关闭连接，设备端应重连</li>
+     * </ul>
+     * 替换在 Netty EventLoop 线程中执行，保证线程安全。
+     */
+    private void replaceIdleHandler(ChannelHandlerContext ctx) {
+        if (readIdleSeconds <= 0) return; // 0 = 禁用读超时
+        ctx.pipeline().replace(
+                io.netty.handler.timeout.IdleStateHandler.class,
+                "idleStateHandler",
+                new io.netty.handler.timeout.IdleStateHandler(
+                        readIdleSeconds, 0, 0, java.util.concurrent.TimeUnit.SECONDS));
+        log.debug("TCP pipeline idle handler replaced: auth-timeout → read-idle {}s", readIdleSeconds);
     }
 
     private String str(Object o) {

@@ -105,9 +105,13 @@ public class TcpController {
 
     @GetMapping("/binary-connections")
     public ApiResponse<List<Map<String, Object>>> binaryConnections() {
-        requireAdmin();
-        return ApiResponse.ok(tunnelingMachineTcpClientConnectionManager == null
-                ? List.of() : tunnelingMachineTcpClientConnectionManager.listConnections());
+        if (tunnelingMachineTcpClientConnectionManager == null) {
+            return ApiResponse.ok(List.of());
+        }
+        if (securityUtils.hasRole("ADMIN")) {
+            return ApiResponse.ok(tunnelingMachineTcpClientConnectionManager.listConnections());
+        }
+        return ApiResponse.ok(tunnelingMachineTcpClientConnectionManager.listConnectionsByOwner(securityUtils.getCurrentUserId()));
     }
 
     @PostMapping("/binary-connections")

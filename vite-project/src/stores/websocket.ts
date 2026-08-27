@@ -8,29 +8,9 @@ export interface WsAlert {
   deviceId: string; level: string; title: string; timestamp: string
 }
 
-let Client: any = null
-let SockJS: any = null
-
-async function loadSockJS() {
-  try {
-    // @ts-ignore sockjs-client 没有可用的类型声明
-    const mod = await import('sockjs-client')
-    SockJS = mod.default || mod
-  } catch {
-    /* ignore */
-  }
-}
-async function loadStomp() {
-  try { 
-    const mod = await import('@stomp/stompjs'); Client = mod.Client 
-  } catch {
-     /* ignore */ 
-    }
-}
-
-// 预加载
-loadSockJS()
-loadStomp()
+import { Client } from '@stomp/stompjs'
+// @ts-ignore
+import SockJS from 'sockjs-client'
 
 const connected = ref(false)
 let stompClient: any = null
@@ -75,7 +55,7 @@ function unsubscribeDevice(deviceId: string) {
   }
 }
 
-/** 连接后：订阅用户定向告警队列 + 所有已登记设备 */
+/** 连接后：订阅用户定向告警队列 + 用户定向设备数据队列 + 所有已登记设备 */
 function subscribeAll() {
   if (!stompClient?.active) return
   try {
@@ -86,6 +66,12 @@ function subscribeAll() {
         alertCallbacks.forEach(fn => fn(alert))
       } catch { /* ignore */ }
     })
+  } catch { /* ignore */ }
+  try {
+    // 设备实时数据：用户定向队列（/user/queue/device）
+    // 后端 DataService.writeDataPoint() 通过 convertAndSendToUser 推送到此地址
+    // 之前前端只订阅了 /topic/device/{id}（后端从未推送），导致 TCP 数据不显示
+    stompClient.subscribe('/user/queue/device', handleDeviceMessage)
   } catch { /* ignore */ }
   for (const id of subscribedDevices) {
     if (!deviceSubscriptions.has(id)) {
