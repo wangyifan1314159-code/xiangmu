@@ -1,2021 +1,1422 @@
+<template>
+  <div class="dv-wrap">
+    <!-- ════════════ 1. 顶部标题栏 (64px) ════════════ -->
+    <header class="top-bar">
+      <div class="tb-left">
+        <span class="clock font-mono"><i class="live-dot"></i>{{ currentTime }}</span>
+        <span class="safe-days">安全运行 <b class="font-mono">{{ safeDays }}</b> 天</span>
+      </div>
+      <div class="tb-center">
+        <h1>工业物联网大数据与实时湖仓监控中心</h1>
+        <p>INDUSTRIAL IOT BIG DATA &amp; REAL-TIME LAKEHOUSE COMMAND CENTER</p>
+      </div>
+      <div class="tb-right">
+        <span v-for="n in sysNodes" :key="n.name" class="sys-pill">
+          <i class="dot" :class="n.ok ? 'ok' : 'bad'"></i>{{ n.name }}
+        </span>
+        <button class="fs-btn" title="全屏切换" @click="toggleFullScreen">
+          <el-icon><FullScreen /></el-icon>
+        </button>
+      </div>
+    </header>
+
+    <!-- ════════════ 2. KPI 指标带 (8 卡) ════════════ -->
+    <section class="kpi-band">
+      <div v-for="k in kpiList" :key="k.key" class="kpi-card" :class="{ danger: k.danger }">
+        <span class="k-label">{{ k.label }}</span>
+        <strong class="k-num font-mono">
+          <span :key="k.display" class="num-in">{{ k.display }}</span>
+          <small>{{ k.unit }}</small>
+        </strong>
+        <span class="k-trend font-mono" :class="k.dir">
+          {{ k.dir === 'up' ? '▲' : '▼' }} {{ k.trend }}
+        </span>
+      </div>
+    </section>
+
+    <!-- ════════════ 3. 告警滚动条 (32px) ════════════ -->
+    <div class="alert-marquee">
+      <span class="am-tag">实时告警</span>
+      <div class="am-mask">
+        <div class="am-track">
+          <span v-for="(a, i) in marqueeLoop" :key="i" class="am-item">
+            <i class="lv-dot" :class="a.level"></i>
+            <b class="font-mono">{{ a.time }}</b>
+            {{ a.text }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════ 4. 主内容区 (22% / 52% / 26%) ════════════ -->
+    <section class="main-area">
+      <!-- ── 左栏 ── -->
+      <div class="col col-l">
+        <!-- ① 巷道环境监测 -->
+        <div class="panel">
+          <i class="cnr tr"></i><i class="cnr bl"></i>
+          <div class="p-head">
+            <span class="p-live"></span><b>巷道环境监测</b><em>TUNNEL ENVIRONMENT</em>
+            <span class="p-extra dim-text font-mono">6 项在线</span>
+          </div>
+          <div class="p-body env-body">
+            <div v-for="e in envList" :key="e.key" class="env-row">
+              <span class="e-name">{{ e.name }}</span>
+              <div class="e-segs">
+                <i v-for="s in 12" :key="s" :class="{ on: s <= e.segs, warn: e.warn }"></i>
+              </div>
+              <span class="e-val font-mono" :class="{ warn: e.warn }">
+                {{ e.value.toFixed(e.decimals) }}<small>{{ e.unit }}</small>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ② 生产进度 -->
+        <div class="panel">
+          <i class="cnr tr"></i><i class="cnr bl"></i>
+          <div class="p-head">
+            <span class="p-live"></span><b>生产进度</b><em>PRODUCTION PROGRESS</em>
+            <span class="p-extra dim-text font-mono">完成率 {{ progressPct.toFixed(1) }}%</span>
+          </div>
+          <div class="p-body prog-body">
+            <div ref="gaugeChartRef" class="prog-gauge"></div>
+            <div class="prog-nums">
+              <div class="pn-item">
+                <span>今日进尺</span>
+                <strong class="font-mono glow-num">{{ machine.todayFootage.toFixed(1) }}<small>m</small></strong>
+              </div>
+              <div class="pn-item">
+                <span>计划进尺</span>
+                <strong class="font-mono">{{ machine.planFootage.toFixed(1) }}<small>m</small></strong>
+              </div>
+              <div class="pn-item">
+                <span>累计进尺</span>
+                <strong class="font-mono glow-num">{{ machine.totalFootage.toFixed(1) }}<small>m</small></strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ③ 设备类型分布 -->
+        <div class="panel">
+          <i class="cnr tr"></i><i class="cnr bl"></i>
+          <div class="p-head">
+            <span class="p-live"></span><b>设备类型分布</b><em>DEVICE DISTRIBUTION</em>
+            <span class="p-extra dim-text font-mono">共 {{ deviceTypeTotal }} 台</span>
+          </div>
+          <div class="p-body"><div ref="deviceTypeChartRef" class="fill-chart"></div></div>
+        </div>
+      </div>
+
+      <!-- ── 中栏 ── -->
+      <div class="col col-c">
+        <!-- ① 巷道态势图（核心） -->
+        <div class="panel tunnel-panel">
+          <i class="cnr tr"></i><i class="cnr bl"></i>
+          <div class="p-head">
+            <span class="p-live"></span><b>巷道态势图</b><em>TUNNEL SITUATION</em>
+            <span class="p-extra tag-run"><i></i>掘进作业中</span>
+          </div>
+          <div ref="tunnelWrapRef" class="tunnel-wrap">
+            <svg viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <linearGradient id="rockGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="rgba(42,160,255,0.12)" />
+                  <stop offset="1" stop-color="rgba(11,17,32,0.55)" />
+                </linearGradient>
+                <linearGradient id="fadeRight" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stop-color="rgba(11,17,32,0)" />
+                  <stop offset="1" stop-color="#0b1120" />
+                </linearGradient>
+              </defs>
+
+              <!-- 巷道主体：直墙半圆拱，右端延伸出画面 -->
+              <path d="M 130 336 L 130 250 Q 130 160 215 160 L 915 160 Q 1005 160 1005 250 L 1005 336 Z"
+                    fill="url(#rockGrad)" stroke="rgba(0,229,208,0.45)" stroke-width="2" />
+              <!-- 顶部锚杆支护示意 -->
+              <g stroke="rgba(42,160,255,0.45)" stroke-width="1.5">
+                <line x1="300" y1="160" x2="300" y2="148" /><line x1="440" y1="160" x2="440" y2="148" />
+                <line x1="580" y1="160" x2="580" y2="148" /><line x1="720" y1="160" x2="720" y2="148" />
+                <line x1="860" y1="160" x2="860" y2="148" />
+              </g>
+              <!-- 地面与轨道 -->
+              <line x1="130" y1="336" x2="1005" y2="336" stroke="rgba(42,160,255,0.35)" stroke-width="1.5" />
+              <line x1="160" y1="322" x2="1000" y2="322" stroke="rgba(122,147,181,0.30)" stroke-dasharray="10 7" />
+              <!-- 压入式风筒（沿顶） -->
+              <path class="duct" d="M 1000 176 L 225 176" />
+              <!-- 风流方向（新风流向掘进面） -->
+              <g class="flow-g">
+                <path class="flow" d="M 960 288 L 420 288" />
+                <path class="flow" d="M 960 258 L 520 258" />
+                <polygon points="420,288 434,283 434,293" fill="rgba(42,160,255,0.55)" />
+                <polygon points="520,258 534,253 534,263" fill="rgba(42,160,255,0.55)" />
+              </g>
+
+              <!-- 掘进面（左端断面）+ 截割火花 -->
+              <path d="M 130 336 L 130 250 Q 130 162 212 161" fill="none" stroke="rgba(0,229,208,0.85)" stroke-width="2.5" />
+              <g class="spark-g" stroke="rgba(245,158,11,0.85)" stroke-width="1.5">
+                <line x1="128" y1="222" x2="106" y2="212" />
+                <line x1="126" y1="235" x2="100" y2="235" />
+                <line x1="128" y1="248" x2="106" y2="258" />
+              </g>
+
+              <!-- EBZ-260 掘进机剪影 -->
+              <g class="machine">
+                <rect x="165" y="302" width="175" height="26" rx="9" fill="rgba(42,160,255,0.14)" stroke="rgba(0,229,208,0.6)" stroke-width="1.5" />
+                <line x1="180" y1="315" x2="325" y2="315" stroke="rgba(0,229,208,0.35)" stroke-dasharray="7 6" />
+                <path d="M 185 302 L 185 258 L 295 258 L 318 276 L 318 302 Z" fill="rgba(42,160,255,0.18)" stroke="rgba(0,229,208,0.7)" stroke-width="1.5" />
+                <rect x="230" y="242" width="34" height="16" rx="2" fill="rgba(42,160,255,0.14)" stroke="rgba(0,229,208,0.55)" />
+                <path d="M 293 268 L 148 226 L 148 244 L 293 286 Z" fill="rgba(0,229,208,0.22)" stroke="rgba(0,229,208,0.75)" stroke-width="1.5" />
+                <circle cx="145" cy="235" r="11" fill="rgba(0,229,208,0.25)" stroke="#00E5D0" stroke-width="1.5" />
+                <line x1="138" y1="235" x2="152" y2="235" stroke="rgba(0,229,208,0.7)" />
+                <line x1="145" y1="228" x2="145" y2="242" stroke="rgba(0,229,208,0.7)" />
+              </g>
+              <text class="svg-name" x="252" y="230">EBZ-260</text>
+              <text class="svg-footage font-mono" x="252" y="248">掘进进尺 {{ machine.totalFootage.toFixed(1) }} m</text>
+
+              <!-- 传感器点位（脉冲圆点） -->
+              <g v-for="p in sensorPoints" :key="p.id" class="sp" :class="{ warn: p.warn }"
+                 @mouseenter="hoverPoint = p" @mousemove="onTunnelMove" @mouseleave="hoverPoint = null">
+                <circle class="sp-ring" :cx="p.x" :cy="p.y" r="7" />
+                <circle class="sp-core" :cx="p.x" :cy="p.y" r="4" />
+                <circle :cx="p.x" :cy="p.y" r="16" fill="transparent" />
+                <text class="sp-label" :x="p.x" :y="p.y + 24">{{ p.short }}</text>
+              </g>
+
+              <!-- 右端渐隐遮罩 -->
+              <rect x="955" y="140" width="50" height="220" fill="url(#fadeRight)" />
+            </svg>
+
+            <!-- 悬停 tooltip -->
+            <div v-if="hoverPoint" class="tunnel-tip" :style="{ left: tipX + 'px', top: tipY + 'px' }">
+              <b>{{ hoverPoint.name }}</b>
+              <span class="font-mono">{{ hoverPoint.value.toFixed(hoverPoint.decimals) }} {{ hoverPoint.unit }}</span>
+              <i :class="hoverPoint.warn ? 'w' : 'n'">{{ hoverPoint.warn ? '预警' : '正常' }}</i>
+            </div>
+          </div>
+        </div>
+
+        <!-- ② 核心指标块 ×4 -->
+        <div class="core-row">
+          <div v-for="m in coreMetricList" :key="m.key" class="core-item" :class="{ over: m.over }">
+            <span class="c-name">{{ m.name }}</span>
+            <strong class="c-val font-mono" :class="{ glow: !m.over }">
+              <span :key="m.display" class="num-in">{{ m.display }}</span>
+              <small>{{ m.unit }}</small>
+            </strong>
+            <span class="c-th font-mono">{{ m.over ? '⚠ 超出阈值 ' + m.threshold + m.unit : '阈值 ' + m.threshold + m.unit }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 右栏 ── -->
+      <div class="col col-r">
+        <!-- ① AI 预测性维护 PHM -->
+        <div class="panel">
+          <i class="cnr tr"></i><i class="cnr bl"></i>
+          <div class="p-head">
+            <span class="p-live"></span><b>AI 预测性维护 PHM</b><em>PREDICTIVE MAINTENANCE</em>
+            <span class="p-extra tag-ok">健康</span>
+          </div>
+          <div class="p-body phm-body">
+            <div ref="phmGaugeRef" class="phm-gauge"></div>
+            <div class="phm-info">
+              <div class="pi-row">
+                <span>预测剩余寿命</span>
+                <strong class="font-mono glow-num">{{ phm.rulDays }}<small>天</small></strong>
+              </div>
+              <div class="pi-row">
+                <span>近 8 日健康趋势</span>
+                <div ref="phmTrendRef" class="phm-mini"></div>
+              </div>
+              <p class="pi-tip">截割部运行平稳，建议 500h 常规巡检</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ② 十米级遥测数据流 -->
+        <div class="panel">
+          <i class="cnr tr"></i><i class="cnr bl"></i>
+          <div class="p-head">
+            <span class="p-live"></span><b>十米级遥测数据流</b><em>TELEMETRY STREAM</em>
+            <span class="p-extra dim-text font-mono">{{ telemetryStream.length }} 条</span>
+          </div>
+          <div class="p-body tl-wrap">
+            <div class="tl-head">
+              <span>时间</span><span>设备</span><span>传感器</span><span class="ta-r">实时值</span>
+            </div>
+            <TransitionGroup tag="div" name="tl" class="tl-body">
+              <div v-for="t in telemetryStream" :key="t.id" class="tl-row">
+                <span class="t font-mono">{{ t.time }}</span>
+                <span class="d">{{ t.device }}</span>
+                <span class="s">{{ t.sensor }}</span>
+                <span class="v font-mono" :class="t.status">
+                  <i class="lv-dot" :class="t.status === 'warning' ? 'warning' : 'normal'"></i>{{ t.value.toFixed(t.decimals) }} {{ t.unit }}
+                </span>
+              </div>
+            </TransitionGroup>
+          </div>
+        </div>
+
+        <!-- ③ 智能联动中心 -->
+        <div class="panel">
+          <i class="cnr tr"></i><i class="cnr bl"></i>
+          <div class="p-head">
+            <span class="p-live"></span><b>智能联动中心</b><em>SMART LINKAGE</em>
+            <span class="p-extra dim-text font-mono">自动执行</span>
+          </div>
+          <div class="p-body lk-body">
+            <TransitionGroup tag="div" name="tl" class="lk-list">
+              <div v-for="l in linkageEvents" :key="l.id" class="lk-row">
+                <span class="lk-time font-mono">{{ l.time }}</span>
+                <div class="lk-main">
+                  <b>{{ l.device }}</b>
+                  <p>{{ l.action }}</p>
+                </div>
+                <i class="lk-dot"></i>
+              </div>
+            </TransitionGroup>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════ 5. 底部趋势带 (~220px) ════════════ -->
+    <section class="panel trend-band">
+      <i class="cnr tr"></i><i class="cnr bl"></i>
+      <div class="p-head">
+        <span class="p-live"></span><b>关键参数趋势</b><em>KEY PARAMETERS TREND · 3s 采样</em>
+        <span class="p-extra dim-text font-mono">窗口 3 分钟</span>
+      </div>
+      <div ref="trendChartRef" class="trend-chart"></div>
+    </section>
+  </div>
+</template>
+
 <script setup lang="ts">
 defineOptions({ name: 'Dashboard' })
-import { computed, onMounted, onUnmounted, onActivated, onDeactivated, ref, watch, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useDeviceStore } from '../../stores/device'
 import { useWebSocket, type WsDeviceData } from '../../stores/websocket'
 import { realApi } from '../../api/realApi'
-import { 
-  TrendCharts, 
-  FullScreen, 
-  Refresh, 
-  Bell, 
-  Cpu, 
-  Connection, 
-  DataAnalysis,
-  CircleCheck,
-  WarningFilled,
-  Odometer,
-  Histogram,
-  Setting,
-  VideoPlay,
-  Opportunity,
-  Monitor
-} from '@element-plus/icons-vue'
+import { FullScreen } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
-const router = useRouter()
-const deviceStore = useDeviceStore()
-const ws = useWebSocket()
+// ─────────────────────────────────────────────────────────────
+// 类型定义（mock 数据结构）
+// ─────────────────────────────────────────────────────────────
+interface KpiDef {
+  key: string; label: string; unit: string; decimals: number
+  useGroup?: boolean; danger?: boolean; trend: string; dir: 'up' | 'down'
+}
+interface EnvDef {
+  key: string; name: string; unit: string; decimals: number
+  displayMax: number; threshold: number | null; base: number; amp: number
+}
+interface EnvItem extends EnvDef { value: number; segs: number; warn: boolean }
+interface SensorPoint {
+  id: string; name: string; short: string; x: number; y: number
+  unit: string; decimals: number; base: number; amp: number
+  value: number; warn: boolean; warnTicks: number; warnable: boolean
+}
+interface TelemetryItem {
+  id: string; time: string; device: string; sensor: string
+  value: number; unit: string; decimals: number; status: 'normal' | 'warning'
+}
+interface LinkageEvent { id: string; time: string; device: string; action: string }
+interface MarqueeAlert { time: string; level: 'normal' | 'warning' | 'critical'; text: string }
 
-// ── 全屏控制 ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 全屏控制
+// ─────────────────────────────────────────────────────────────
 const isFullscreen = ref(false)
 function toggleFullScreen() {
   if (!document.fullscreenElement) {
     document.documentElement.requestFullscreen().catch(() => {})
     isFullscreen.value = true
-  } else {
-    if (document.exitFullscreen) {
-      document.exitFullscreen().catch(() => {})
-      isFullscreen.value = false
-    }
+  } else if (document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {})
+    isFullscreen.value = false
   }
 }
+function onFullscreenChange() {
+  isFullscreen.value = !!document.fullscreenElement
+}
 
-// ── 时钟与运行时间 ────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 时钟与安全运行天数
+// ─────────────────────────────────────────────────────────────
 const currentTime = ref('')
-const runningDuration = ref('')
+// [接入点] 安全运行天数：可替换为后端系统启动时间接口
+const START_TIME = Date.now() - (142 * 24 * 3600 + 8 * 3600 + 32 * 60) * 1000
+const safeDays = computed(() => Math.floor((Date.now() - START_TIME) / 86400000))
 let clockTimer: ReturnType<typeof setInterval> | undefined
-const startTime = Date.now() - (142 * 24 * 3600 + 8 * 3600 + 32 * 60) * 1000
 
 function updateClock() {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
-  const weekDays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-  currentTime.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} ${weekDays[d.getDay()]}`
-  
-  const diff = Math.floor((Date.now() - startTime) / 1000)
-  const days = Math.floor(diff / 86400)
-  const hours = Math.floor((diff % 86400) / 3600)
-  const mins = Math.floor((diff % 3600) / 60)
-  const secs = diff % 60
-  runningDuration.value = `${days}天 ${pad(hours)}:${pad(mins)}:${pad(secs)}`
+  const week = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+  currentTime.value =
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} ${week[d.getDay()]}`
 }
 
-// ── 顶部核心 KPI 指标 (支持高频微波动) ──────────────────────────────────────
-const qps = ref(85420)
-const flinkLatency = ref(32)
-const lakeStorage = ref('4.82 TB')
-const kafkaThroughput = ref('1.45 M/s')
-const cleanPassRate = ref('99.92%')
-const deadValueBlocked = ref(1420)
-const onlineRate = computed(() => deviceStore.totalCount ? Math.round(deviceStore.onlineCount / deviceStore.totalCount * 100) : 0)
+// ─────────────────────────────────────────────────────────────
+// 真实接入：设备 store 与 WebSocket
+// ─────────────────────────────────────────────────────────────
+const deviceStore = useDeviceStore()
+const ws = useWebSocket()
+let wsUnsub: (() => void) | null = null
 
-// ── 中间区域：环境传感器群 (左子区) ──────────────────────────────────────
-const envData = ref({
-  ch4: 0.32,       // 甲烷 %
-  co: 5.4,         // 一氧化碳 ppm
-  co2: 0.06,       // 二氧化碳 %
-  temp: 23.8,      // 环境温度 ℃
-  humidity: 62.5,  // 湿度 %RH
-  dust: 14.2,      // 粉尘 mg/m³
-  windSpeed: 12.5, // 风速 m/s
-  pressure: 101.3  // 气压 kPa
-})
-
-// ── 中间区域：掘进机设备传感器群 (右子区) ──────────────────────────────────
-const devSensors = ref({
-  cutterTemp: 56.4,   // 截割电机温度 ℃
-  oilPumpTemp: 48.2,  // 油泵电机温度 ℃
-  hydraulicPress: 28.5,// 液压系统压力 MPa
-  coolingPress: 1.8,  // 冷却水压力 MPa
-  coolingFlow: 65.0,  // 冷却水流量 L/min
-  motorCurrent: 168.4,// 主电机运行电流 A
-  vibration: 2.8,     // 截割三轴振动 mm/s
-  gearOilTemp: 52.1   // 齿轮箱油温 ℃
-})
-
-// 掘进机姿态角与运行状态 (中子区)
-const machineState = ref({
-  name: 'EBZ-260 智能悬臂式掘进机',
-  status: 'CUTTING', // CUTTING, IDLE, HIGH_LOAD, WARNING
-  statusText: '截割作业中',
-  rpm: 42,
-  advance: 1.28,
-  pitch: -1.2,
-  roll: 0.4,
-  yaw: 88.5
-})
-
-// ── 右侧：AI 预测性维护 (PHM) 动态状态机 ──────────────────────────────────
-// 预设 4 种典型联动工况，支持 TCP 数据联动或自动情境演练
-const currentScenario = ref<'NORMAL' | 'HIGH_LOAD' | 'WEAR_WARN' | 'COOLING_ADAPT'>('NORMAL')
-const scenarioList = [
-  { key: 'NORMAL', name: '正常稳态截割', desc: '各电机与水压温度平稳，健康指数 96+' },
-  { key: 'HIGH_LOAD', name: '坚硬岩层/大载荷', desc: '截割电流与温升增加，AI动态下调RUL预测' },
-  { key: 'WEAR_WARN', name: '截割齿轻度磨损', desc: '三轴振动超标(4.2mm/s)，触发智能换齿预警' },
-  { key: 'COOLING_ADAPT', name: '自适应水冷调节', desc: '喷雾降尘水压自愈联动，温升受控' }
-]
-
-const aiPhmState = ref({
-  healthScore: 96,
-  rulDays: 450,
-  wearRate: 14,
-  anomalyProb: 3.2,
-  recommendation: '截割头传动机构与润滑正常，建议按既定规程每 500 小时巡检',
-  statusLevel: 'HEALTHY'
-})
-
-const phmFleetList = ref([
-  { id: 'EBZ-260-掘进机#1', score: 96, rul: 450, status: 'HEALTHY', type: '掘进机' },
-  { id: 'FBD-No7.5-通风机', score: 88, rul: 180, status: 'HEALTHY', type: '通风系统' },
-  { id: 'MD-280-主排水泵', score: 76, rul: 64, status: 'ATTENTION', type: '排水泵组' },
-  { id: 'DSJ-100-皮带机', score: 58, rul: 12, status: 'CRITICAL', type: '主运输线' }
+// ─────────────────────────────────────────────────────────────
+// 顶部右侧系统节点状态
+// [接入点] 可替换为 realApi.getFlinkJob / Kafka / Iceberg 健康接口
+// ─────────────────────────────────────────────────────────────
+const sysNodes = ref([
+  { name: 'Flink 1.18', ok: true },
+  { name: 'Kafka 32P', ok: true },
+  { name: 'Iceberg', ok: true }
 ])
 
-function switchScenario(scKey: 'NORMAL' | 'HIGH_LOAD' | 'WEAR_WARN' | 'COOLING_ADAPT') {
-  currentScenario.value = scKey
-  if (scKey === 'NORMAL') {
-    machineState.value.status = 'CUTTING'
-    machineState.value.statusText = '连续截割作业中'
-    devSensors.value.cutterTemp = 56.4
-    devSensors.value.motorCurrent = 168.4
-    devSensors.value.vibration = 2.8
-    devSensors.value.hydraulicPress = 28.5
-    envData.value.ch4 = 0.32
-    aiPhmState.value.healthScore = 96
-    aiPhmState.value.rulDays = 450
-    aiPhmState.value.anomalyProb = 3.2
-    aiPhmState.value.statusLevel = 'HEALTHY'
-    aiPhmState.value.recommendation = '主驱动与液压系统健康度极佳，无异常磨损'
-    phmFleetList.value[0].score = 96
-    phmFleetList.value[0].rul = 450
-    phmFleetList.value[0].status = 'HEALTHY'
-  } else if (scKey === 'HIGH_LOAD') {
-    machineState.value.status = 'HIGH_LOAD'
-    machineState.value.statusText = '遇坚硬岩层 (高载荷)'
-    devSensors.value.cutterTemp = 74.8
-    devSensors.value.motorCurrent = 194.2
-    devSensors.value.vibration = 3.6
-    devSensors.value.hydraulicPress = 30.2
-    envData.value.dust = 28.4
-    aiPhmState.value.healthScore = 82
-    aiPhmState.value.rulDays = 340
-    aiPhmState.value.anomalyProb = 18.5
-    aiPhmState.value.statusLevel = 'ATTENTION'
-    aiPhmState.value.recommendation = '检测到截割阻力突增，已自动调低推进步进速度0.15m/min'
-    phmFleetList.value[0].score = 82
-    phmFleetList.value[0].rul = 340
-    phmFleetList.value[0].status = 'ATTENTION'
-  } else if (scKey === 'WEAR_WARN') {
-    machineState.value.status = 'WARNING'
-    machineState.value.statusText = '截割齿磨损预警'
-    devSensors.value.cutterTemp = 82.5
-    devSensors.value.motorCurrent = 188.0
-    devSensors.value.vibration = 4.8
-    envData.value.ch4 = 0.65
-    aiPhmState.value.healthScore = 64
-    aiPhmState.value.rulDays = 85
-    aiPhmState.value.anomalyProb = 46.8
-    aiPhmState.value.statusLevel = 'CRITICAL'
-    aiPhmState.value.recommendation = '【AI预警】3#截割齿高频冲击振动超限，建议12小时内停机更换'
-    phmFleetList.value[0].score = 64
-    phmFleetList.value[0].rul = 85
-    phmFleetList.value[0].status = 'CRITICAL'
-  } else if (scKey === 'COOLING_ADAPT') {
-    machineState.value.status = 'CUTTING'
-    machineState.value.statusText = '风水联动自适应喷雾'
-    devSensors.value.cutterTemp = 58.2
-    devSensors.value.coolingPress = 2.4
-    devSensors.value.coolingFlow = 88.0
-    envData.value.dust = 11.2
-    aiPhmState.value.healthScore = 92
-    aiPhmState.value.rulDays = 410
-    aiPhmState.value.anomalyProb = 6.4
-    aiPhmState.value.statusLevel = 'HEALTHY'
-    aiPhmState.value.recommendation = '高压喷雾除尘降温闭环生效中，环境粉尘显著下降'
-    phmFleetList.value[0].score = 92
-    phmFleetList.value[0].rul = 410
-    phmFleetList.value[0].status = 'HEALTHY'
-  }
-  updateAiPhmChart()
+// ─────────────────────────────────────────────────────────────
+// KPI 指标带（8 卡）
+// ─────────────────────────────────────────────────────────────
+const kpiDefs: KpiDef[] = [
+  { key: 'devices', label: '设备接入总数', unit: '台', decimals: 0, trend: '1.2%', dir: 'up' },
+  { key: 'online', label: '在线设备数', unit: '台', decimals: 0, trend: '0.8%', dir: 'up' },
+  { key: 'qps', label: '实时流入 QPS', unit: '', decimals: 0, useGroup: true, trend: '2.4%', dir: 'up' },
+  { key: 'kafkaRate', label: 'Kafka 消费速率', unit: 'M/s', decimals: 2, trend: '1.6%', dir: 'up' },
+  { key: 'storage', label: '湖仓累计存储', unit: 'TB', decimals: 2, trend: '0.3%', dir: 'up' },
+  { key: 'passRate', label: '清洗合格率', unit: '%', decimals: 2, trend: '0.02%', dir: 'up' },
+  { key: 'pending', label: '待响应报警', unit: '条', decimals: 0, danger: true, trend: '1', dir: 'up' },
+  { key: 'todayAlerts', label: '今日告警数', unit: '条', decimals: 0, trend: '3', dir: 'up' }
+]
+const kpiValues = reactive<Record<string, number>>({
+  devices: 48, online: 45, qps: 85420, kafkaRate: 1.45,
+  storage: 4.82, passRate: 99.92, pending: 3, todayAlerts: 17
+})
+const kpiList = computed(() =>
+  kpiDefs.map(d => {
+    const v = kpiValues[d.key]
+    const display = d.useGroup ? Math.round(v).toLocaleString('en-US') : v.toFixed(d.decimals)
+    return { ...d, display }
+  })
+)
+function tickKpis() {
+  kpiValues.qps = Math.max(82000, Math.min(89000, kpiValues.qps + (Math.random() - 0.5) * 2600))
+  kpiValues.kafkaRate = Math.max(1.3, Math.min(1.6, kpiValues.kafkaRate + (Math.random() - 0.5) * 0.08))
+  kpiValues.storage = +(kpiValues.storage + Math.random() * 0.004).toFixed(3)
+  kpiValues.passRate = Math.min(100, Math.max(99.8, kpiValues.passRate + (Math.random() - 0.5) * 0.04))
+  if (Math.random() < 0.25) kpiValues.pending = Math.max(1, Math.min(6, kpiValues.pending + (Math.random() < 0.5 ? -1 : 1)))
+  if (Math.random() < 0.12) kpiValues.todayAlerts += 1
 }
 
-// ── 实时遥测流 (WebSocket 推送 + 真实接口填充) ───────────────────────────
-interface TelemetryItem {
-  id: string
-  time: string
-  device: string
-  sensor: string
-  value: number
-  unit: string
-  status: string
-  highlight?: boolean
-}
-const telemetryStream = ref<TelemetryItem[]>([])
-let wsUnsubscribe: (() => void) | null = null
+// ─────────────────────────────────────────────────────────────
+// 告警滚动条（真实接入 + mock 兜底）
+// ─────────────────────────────────────────────────────────────
+const marqueeAlerts = ref<MarqueeAlert[]>([
+  { time: '16:08:12', level: 'critical', text: 'EBZ-260·截割电机温度 74.3℃ 接近阈值' },
+  { time: '16:09:40', level: 'warning', text: 'KJ90-环境站#03·工作面甲烷浓度上扬至 0.58%' },
+  { time: '16:10:05', level: 'normal', text: 'MD-280-排水泵#02·自动排空自愈保护联动完成' },
+  { time: '16:12:33', level: 'warning', text: 'GCG100-粉尘仪·掘进面粉尘浓度 21.4 mg/m³ 超限' },
+  { time: '16:15:47', level: 'normal', text: 'FBD-No7.5·局扇频率自适应调节已生效' }
+])
+const marqueeLoop = computed(() => [...marqueeAlerts.value, ...marqueeAlerts.value])
 
-function appendTelemetryData(data: WsDeviceData) {
-  if (data.type !== 'data') return
-  const item: TelemetryItem = {
-    id: `${Date.now()}_${Math.random()}`,
-    time: new Date().toLocaleTimeString(),
-    device: data.deviceId,
-    sensor: data.sensorId,
-    value: typeof data.value === 'number' ? data.value : 0,
-    unit: data.unit || '',
-    status: 'online',
-    highlight: true
-  }
-  telemetryStream.value.unshift(item)
-  if (telemetryStream.value.length > 20) {
-    telemetryStream.value.pop()
-  }
-  setTimeout(() => { item.highlight = false }, 1200)
-
-  // 联动更新全套环境与设备实体指标
-  const sId = (data.sensorId || '').toLowerCase()
-  const v = typeof data.value === 'number' ? data.value : 0
-
-  // 1. 环境指标识别
-  if (sId.includes('ch4') || sId.includes('甲烷') || sId.includes('瓦斯')) {
-    envData.value.ch4 = +(v).toFixed(2)
-  } else if (sId.includes('co2') || sId.includes('二氧化碳')) {
-    envData.value.co2 = +(v).toFixed(2)
-  } else if (sId.includes('co') || sId.includes('一氧化碳')) {
-    envData.value.co = +(v).toFixed(1)
-  } else if (sId.includes('humidity') || sId.includes('湿度')) {
-    envData.value.humidity = +(v).toFixed(1)
-  } else if (sId.includes('dust') || sId.includes('粉尘')) {
-    envData.value.dust = +(v).toFixed(1)
-  } else if (sId.includes('wind') || sId.includes('风速')) {
-    envData.value.windSpeed = +(v).toFixed(1)
-  } else if (sId.includes('pressure') && (sId.includes('env') || sId.includes('气压') || sId.includes('负压'))) {
-    envData.value.pressure = +(v).toFixed(1)
-  }
-  // 2. 掘进机本体设备工控指标识别
-  else if (sId.includes('cutter') || sId.includes('截割') || (sId.includes('temp') && !sId.includes('env'))) {
-    devSensors.value.cutterTemp = +(v).toFixed(1)
-  } else if (sId.includes('pump_temp') || sId.includes('油泵温度')) {
-    devSensors.value.oilPumpTemp = +(v).toFixed(1)
-  } else if (sId.includes('press') || sId.includes('液压') || sId.includes('油压')) {
-    devSensors.value.hydraulicPress = +(v).toFixed(1)
-  } else if (sId.includes('cooling') || sId.includes('水压') || sId.includes('水温')) {
-    devSensors.value.coolingPress = +(v).toFixed(1)
-  } else if (sId.includes('flow') || sId.includes('流量')) {
-    devSensors.value.coolingFlow = +(v).toFixed(1)
-  } else if (sId.includes('current') || sId.includes('电流') || sId.includes('安培')) {
-    devSensors.value.motorCurrent = +(v).toFixed(1)
-  } else if (sId.includes('vibr') || sId.includes('振动')) {
-    devSensors.value.vibration = +(v).toFixed(1)
-  } else if (sId.includes('gear') || sId.includes('齿轮')) {
-    devSensors.value.gearOilTemp = +(v).toFixed(1)
-  }
-
-  // 3. 基于真实数据帧实时驱动 AI 动态推断
-  let healthDeduction = 0
-  if (devSensors.value.cutterTemp > 70) healthDeduction += (devSensors.value.cutterTemp - 70) * 2
-  if (devSensors.value.vibration > 3.5) healthDeduction += (devSensors.value.vibration - 3.5) * 8
-  if (devSensors.value.hydraulicPress > 30) healthDeduction += (devSensors.value.hydraulicPress - 30) * 4
-  if (devSensors.value.motorCurrent > 185) healthDeduction += (devSensors.value.motorCurrent - 185) * 1.5
-
-  const score = Math.max(45, Math.min(99, Math.round(98 - healthDeduction)))
-  aiPhmState.value.healthScore = score
-  aiPhmState.value.rulDays = Math.round(score * 4.6)
-  aiPhmState.value.anomalyProb = +(Math.max(1.5, (100 - score) * 0.8)).toFixed(1)
-
-  if (score < 70) {
-    aiPhmState.value.statusLevel = 'CRITICAL'
-    aiPhmState.value.recommendation = '【AI实时警告】截割负载与振动复合超限，建议立即排查截割齿与供油状态'
-    machineState.value.status = 'WARNING'
-    machineState.value.statusText = '工况超限预警'
-  } else if (score < 85) {
-    aiPhmState.value.statusLevel = 'ATTENTION'
-    aiPhmState.value.recommendation = '工况负荷处于高位，建议适当降低掘进截割进尺速率'
-    machineState.value.status = 'HIGH_LOAD'
-    machineState.value.statusText = '大负荷截割'
-  } else {
-    aiPhmState.value.statusLevel = 'HEALTHY'
-    aiPhmState.value.recommendation = '设备运行健康稳定，各传感器温度与压力在安全包络线内'
-    machineState.value.status = 'CUTTING'
-    machineState.value.statusText = '稳定截割中'
-  }
-  phmFleetList.value[0].score = score
-  phmFleetList.value[0].rul = aiPhmState.value.rulDays
-  phmFleetList.value[0].status = aiPhmState.value.statusLevel
-  updateAiPhmChart()
-}
-
-function seedInitialTelemetry() {
-  const sensors = [
-    { dev: 'EBZ-260-掘进机#01', sensor: '截割电机温度', unit: '℃', min: 52, max: 70 },
-    { dev: 'EBZ-260-掘进机#01', sensor: '瓦斯甲烷CH4', unit: '%', min: 0.2, max: 0.6 },
-    { dev: 'EBZ-260-掘进机#01', sensor: '主液压泵压力', unit: 'MPa', min: 26, max: 30 },
-    { dev: 'FBD-No7.5-通风机', sensor: '工作面风速', unit: 'm/s', min: 10, max: 15 },
-    { dev: 'MD-280-排水泵#02', sensor: '管网瞬时流量', unit: 'm³/h', min: 260, max: 290 },
-    { dev: 'DEV-环境站#03', sensor: '粉尘综合浓度', unit: 'mg/m³', min: 12, max: 25 }
-  ]
-  
-  if (telemetryStream.value.length === 0) {
-    for (let i = 0; i < 10; i++) {
-      const s = sensors[i % sensors.length]
-      const val = +(s.min + Math.random() * (s.max - s.min)).toFixed(2)
-      telemetryStream.value.push({
-        id: `init_${i}`,
-        time: new Date(Date.now() - (10 - i) * 3000).toLocaleTimeString(),
-        device: s.dev,
-        sensor: s.sensor,
-        value: val,
-        unit: s.unit,
-        status: val > s.max * 0.9 ? 'warning' : 'online'
+async function fetchAlertMarquee() {
+  // [接入点] realApi.getAlertRecords：真实告警记录（已接入，失败时回落 mock）
+  try {
+    const page = await realApi.getAlertRecords({ status: 'TRIGGERED', page: 0, size: 8 })
+    const content = page?.content || []
+    if (content.length > 0) {
+      kpiValues.pending = page.totalElements ?? content.length
+      marqueeAlerts.value = content.slice(0, 6).map((r: Record<string, unknown>) => {
+        const lv = String(r.level || 'WARNING').toUpperCase()
+        return {
+          time: r.triggeredAt ? new Date(String(r.triggeredAt)).toLocaleTimeString('zh-CN', { hour12: false }) : '刚刚',
+          level: (lv === 'CRITICAL' ? 'critical' : lv === 'WARNING' ? 'warning' : 'normal') as MarqueeAlert['level'],
+          text: `${String(r.deviceName || r.deviceId || '设备')}·${String(r.ruleName || r.title || '遥测阈值超限触发')}`
+        }
       })
     }
+  } catch { /* mock 兜底，忽略 */ }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 左栏 ① 巷道环境监测（6 项分段进度条）
+// ─────────────────────────────────────────────────────────────
+const envDefs: EnvDef[] = [
+  { key: 'ch4', name: '瓦斯 CH4', unit: '%', decimals: 2, displayMax: 1, threshold: 0.6, base: 0.32, amp: 0.12 },
+  { key: 'co', name: 'CO 浓度', unit: 'ppm', decimals: 1, displayMax: 40, threshold: 24, base: 5.4, amp: 2.2 },
+  { key: 'temp', name: '环境温度', unit: '℃', decimals: 1, displayMax: 40, threshold: 30, base: 23.8, amp: 1.6 },
+  { key: 'humidity', name: '相对湿度', unit: '%RH', decimals: 1, displayMax: 100, threshold: null, base: 62.5, amp: 3 },
+  { key: 'wind', name: '巷道风速', unit: 'm/s', decimals: 1, displayMax: 6, threshold: null, base: 3.2, amp: 0.5 },
+  { key: 'dust', name: '粉尘浓度', unit: 'mg/m³', decimals: 1, displayMax: 30, threshold: 20, base: 14.2, amp: 4 }
+]
+const envState = reactive<Record<string, number>>(
+  Object.fromEntries(envDefs.map(d => [d.key, d.base]))
+)
+const envList = computed<EnvItem[]>(() =>
+  envDefs.map(d => {
+    const value = envState[d.key]
+    return {
+      ...d, value,
+      segs: Math.min(12, Math.max(1, Math.round((value / d.displayMax) * 12))),
+      warn: d.threshold !== null && value >= d.threshold
+    }
+  })
+)
+function tickEnv() {
+  for (const d of envDefs) {
+    const next = envState[d.key] + (Math.random() - 0.5) * d.amp * 0.35
+    envState[d.key] = +Math.max(d.base - d.amp, Math.min(d.base + d.amp, next)).toFixed(d.decimals)
   }
 }
 
-// ── ECharts 实例 ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 左栏 ② 生产进度 + 中栏核心指标 + 底部趋势 共享的机器状态
+// [接入点] mock 随机游走；未来由 WebSocket 掘进机数据帧驱动
+// ─────────────────────────────────────────────────────────────
+const machine = reactive({
+  todayFootage: 18.6,
+  planFootage: 24.0,
+  totalFootage: 1258.6,
+  cutRate: 42.0,        // 截割效率 cut/min
+  motorCurrent: 160.4,  // 主电机电流 A
+  advanceSpeed: 1.28,   // 推进速度 m/min
+  coolingFlow: 65.0,    // 冷却水流量 L/min
+  cutterTemp: 56.4,     // 截割电机温度 ℃（趋势 + 遥测）
+  hydraulicPress: 28.5  // 液压压力 MPa（趋势）
+})
+const progressPct = computed(() => (machine.todayFootage / machine.planFootage) * 100)
+
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
+function tickMachine() {
+  machine.cutRate = +clamp(machine.cutRate + (Math.random() - 0.5) * 4, 36, 48).toFixed(1)
+  // 偶发冲高演示超阈值变橙（阈值 185A）
+  machine.motorCurrent = Math.random() < 0.06
+    ? +clamp(186 + Math.random() * 8, 186, 196).toFixed(1)
+    : +clamp(machine.motorCurrent + (Math.random() - 0.5) * 8, 150, 184).toFixed(1)
+  machine.advanceSpeed = +clamp(machine.advanceSpeed + (Math.random() - 0.5) * 0.2, 1.0, 1.5).toFixed(2)
+  // 偶发低于下限演示（下限 58L/min）
+  machine.coolingFlow = Math.random() < 0.05
+    ? +clamp(55 + Math.random() * 2.5, 55, 57.5).toFixed(1)
+    : +clamp(machine.coolingFlow + (Math.random() - 0.5) * 5, 58.5, 74).toFixed(1)
+  // 偶发温升演示（阈值 70℃）
+  machine.cutterTemp = Math.random() < 0.06
+    ? +clamp(70.5 + Math.random() * 5, 70.5, 76).toFixed(1)
+    : +clamp(machine.cutterTemp + (Math.random() - 0.5) * 3, 52, 69).toFixed(1)
+  machine.hydraulicPress = +clamp(machine.hydraulicPress + (Math.random() - 0.5) * 1.4, 26, 31).toFixed(1)
+  // 推进速度 1.28 m/min → 每 3s 进尺约 0.064m
+  const delta = (machine.advanceSpeed * 3 / 60) * (0.85 + Math.random() * 0.3)
+  machine.todayFootage = +(machine.todayFootage + delta).toFixed(2)
+  machine.totalFootage = +(machine.totalFootage + delta).toFixed(2)
+}
+
+// 中栏底部 4 个核心指标块
+const coreMetricDefs = [
+  { key: 'cutRate', name: '截割效率', unit: 'cut/min', decimals: 1, threshold: 48, direction: 'max' as const },
+  { key: 'motorCurrent', name: '主电机电流', unit: 'A', decimals: 1, threshold: 185, direction: 'max' as const },
+  { key: 'advanceSpeed', name: '推进速度', unit: 'm/min', decimals: 2, threshold: 1.6, direction: 'max' as const },
+  { key: 'coolingFlow', name: '冷却水流量', unit: 'L/min', decimals: 1, threshold: 58, direction: 'min' as const }
+]
+const coreMetricList = computed(() =>
+  coreMetricDefs.map(d => {
+    const value = machine[d.key as keyof typeof machine] as number
+    const over = d.direction === 'max' ? value >= d.threshold : value <= d.threshold
+    return { ...d, value, over, display: value.toFixed(d.decimals) }
+  })
+)
+
+// ─────────────────────────────────────────────────────────────
+// 中栏 ① 巷道态势图：SVG 传感器点位（mock 随机游走）
+// [接入点] 点位实时值未来由 WebSocket 推送驱动（sensorId → 点位映射）
+// ─────────────────────────────────────────────────────────────
+const sensorPoints = reactive<SensorPoint[]>([
+  { id: 't0', name: 'T0 瓦斯（掘进面）', short: 'T0瓦斯', x: 155, y: 205, unit: '%', decimals: 2, base: 0.34, amp: 0.16, value: 0.34, warn: false, warnTicks: 0, warnable: true },
+  { id: 'dust', name: '掘进面粉尘', short: '粉尘', x: 368, y: 232, unit: 'mg/m³', decimals: 1, base: 14.5, amp: 6, value: 14.5, warn: false, warnTicks: 0, warnable: true },
+  { id: 't1', name: 'T1 瓦斯（回风侧）', short: 'T1瓦斯', x: 462, y: 200, unit: '%', decimals: 2, base: 0.28, amp: 0.1, value: 0.28, warn: false, warnTicks: 0, warnable: false },
+  { id: 'temp', name: '巷道温度', short: '温度', x: 582, y: 192, unit: '℃', decimals: 1, base: 24.2, amp: 1.8, value: 24.2, warn: false, warnTicks: 0, warnable: false },
+  { id: 'wind', name: '风速传感器', short: '风速', x: 686, y: 240, unit: 'm/s', decimals: 1, base: 3.3, amp: 0.5, value: 3.3, warn: false, warnTicks: 0, warnable: false },
+  { id: 'co', name: 'CO 传感器', short: 'CO', x: 768, y: 196, unit: 'ppm', decimals: 1, base: 5.8, amp: 1.8, value: 5.8, warn: false, warnTicks: 0, warnable: false },
+  { id: 'press', name: '压力监测点', short: '压力', x: 848, y: 228, unit: 'kPa', decimals: 1, base: 88.5, amp: 3, value: 88.5, warn: false, warnTicks: 0, warnable: false },
+  { id: 'hum', name: '湿度监测点', short: '湿度', x: 916, y: 196, unit: '%RH', decimals: 1, base: 60.5, amp: 3, value: 60.5, warn: false, warnTicks: 0, warnable: false }
+])
+function tickPoints() {
+  for (const p of sensorPoints) {
+    if (p.warnTicks > 0) {
+      // 预警态：数值冲向高位
+      p.warnTicks--
+      p.value = +(p.base + p.amp * (0.85 + Math.random() * 0.15)).toFixed(p.decimals)
+      if (p.warnTicks === 0) p.value = +(p.base + (Math.random() - 0.3) * p.amp * 0.4).toFixed(p.decimals)
+    } else {
+      p.value = +(clamp(p.value + (Math.random() - 0.5) * p.amp * 0.3, p.base - p.amp * 0.5, p.base + p.amp * 0.5)).toFixed(p.decimals)
+      // 可预警点位间歇性进入预警（持续约 5 个 tick ≈ 15s）
+      if (p.warnable && Math.random() < 0.05) p.warnTicks = 5
+    }
+    p.warn = p.warnTicks > 0
+  }
+}
+
+// 点位悬停 tooltip
+const tunnelWrapRef = ref<HTMLDivElement | null>(null)
+const hoverPoint = ref<SensorPoint | null>(null)
+const tipX = ref(0)
+const tipY = ref(0)
+function onTunnelMove(e: MouseEvent) {
+  const el = tunnelWrapRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  tipX.value = Math.min(e.clientX - rect.left + 14, rect.width - 190)
+  tipY.value = Math.min(e.clientY - rect.top + 12, rect.height - 70)
+}
+
+// ─────────────────────────────────────────────────────────────
+// 右栏 ① AI 预测性维护 PHM
+// [接入点] 健康指数/剩余寿命未来由 PHM 推理服务接口返回
+// ─────────────────────────────────────────────────────────────
+const phm = reactive({ health: 92, rulDays: 410 })
+const phmHistory = [88, 90, 89, 91, 93, 92, 94, 92]
+function tickPhm() {
+  phm.health = Math.round(clamp(phm.health + (Math.random() - 0.5) * 2, 88, 96))
+  phm.rulDays = Math.round(clamp(phm.rulDays + (Math.random() - 0.5) * 4, 400, 420))
+}
+
+// ─────────────────────────────────────────────────────────────
+// 右栏 ② 十米级遥测数据流（mock 2s 插入 + WebSocket 真实数据混合）
+// ─────────────────────────────────────────────────────────────
+const telemetryPool = [
+  { device: 'EBZ-260掘进机#01', sensor: '截割电机温度', unit: '℃', decimals: 1, min: 52, max: 75 },
+  { device: 'EBZ-260掘进机#01', sensor: '主电机电流', unit: 'A', decimals: 1, min: 155, max: 195 },
+  { device: 'FBD-No7.5通风机', sensor: '轴承温度', unit: '℃', decimals: 1, min: 45, max: 60 },
+  { device: 'MD-280排水泵#02', sensor: '出口压力', unit: 'MPa', decimals: 2, min: 3.2, max: 4.5 },
+  { device: 'KJ90环境站#03', sensor: 'CH4 浓度', unit: '%', decimals: 2, min: 0.2, max: 0.7 },
+  { device: 'DSJ-100皮带机', sensor: '带速', unit: 'm/s', decimals: 2, min: 2.0, max: 2.8 },
+  { device: 'GCG100粉尘仪', sensor: '粉尘浓度', unit: 'mg/m³', decimals: 1, min: 8, max: 28 }
+]
+const telemetryStream = ref<TelemetryItem[]>([])
+let telemetrySeq = 0
+
+function fmtHMS(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+function pushTelemetry(item: TelemetryItem) {
+  telemetryStream.value.unshift(item)
+  if (telemetryStream.value.length > 12) telemetryStream.value.pop()
+}
+function mockTelemetryTick() {
+  const s = telemetryPool[Math.floor(Math.random() * telemetryPool.length)]
+  const value = +(s.min + Math.random() * (s.max - s.min)).toFixed(s.decimals)
+  pushTelemetry({
+    id: `mock_${++telemetrySeq}_${Date.now()}`,
+    time: fmtHMS(new Date()),
+    device: s.device, sensor: s.sensor,
+    value, unit: s.unit, decimals: s.decimals,
+    status: value > s.max * 0.9 ? 'warning' : 'normal'
+  })
+}
+// [接入点] WebSocket 真实遥测数据到达时插入流（真实数据优先于 mock 视觉）
+function handleWsData(data: WsDeviceData) {
+  if (data.type !== 'data') return
+  pushTelemetry({
+    id: `ws_${++telemetrySeq}_${Date.now()}`,
+    time: fmtHMS(new Date()),
+    device: data.deviceId, sensor: data.sensorId,
+    value: typeof data.value === 'number' ? data.value : 0,
+    unit: data.unit || '', decimals: 2, status: 'normal'
+  })
+}
+
+// ─────────────────────────────────────────────────────────────
+// 右栏 ③ 智能联动中心（mock 事件池轮换）
+// [接入点] 未来由规则引擎/联动执行记录接口提供
+// ─────────────────────────────────────────────────────────────
+const linkagePool = [
+  { device: 'EBZ-260 掘进机', action: '自动增强外喷雾降尘已启动' },
+  { device: 'FBD-No7.5 局扇', action: '变频器频率上调至 45Hz 指令已下发' },
+  { device: 'MD-280 排水泵', action: '备用泵轮换启动，双回路切换完成' },
+  { device: 'KJ90 断电仪', action: '掘进面瓦斯电闭锁自检通过' },
+  { device: 'DSJ-100 皮带机', action: '沿线洒水降尘联动已生效' }
+]
+const linkageEvents = ref<LinkageEvent[]>([])
+let linkageSeq = 0
+function seedLinkage() {
+  linkageEvents.value = linkagePool.slice(0, 4).map((l, i) => ({
+    id: `lk_${i}`, time: fmtHMS(new Date(Date.now() - (i + 1) * 40000)),
+    device: l.device, action: l.action
+  }))
+}
+function linkageTick() {
+  const l = linkagePool[linkageSeq % linkagePool.length]
+  linkageSeq++
+  linkageEvents.value.unshift({
+    id: `lk_${linkageSeq}_${Date.now()}`,
+    time: fmtHMS(new Date()), device: l.device, action: l.action
+  })
+  if (linkageEvents.value.length > 5) linkageEvents.value.pop()
+}
+
+// ─────────────────────────────────────────────────────────────
+// 左栏 ③ 设备类型分布（mock，横向条形图）
+// [接入点] 未来按 deviceStore.devices 按类型聚合
+// ─────────────────────────────────────────────────────────────
+const deviceTypeData = [
+  { name: '瓦斯/环境站', value: 18 },
+  { name: '主皮带运线', value: 14 },
+  { name: '掘进机本体', value: 12 },
+  { name: '主通风机', value: 10 },
+  { name: '主排水泵', value: 8 },
+  { name: '供配电系统', value: 6 }
+]
+const deviceTypeTotal = computed(() => deviceTypeData.reduce((s, d) => s + d.value, 0))
+
+// ─────────────────────────────────────────────────────────────
+// ECharts 实例与初始化
+// ─────────────────────────────────────────────────────────────
+const gaugeChartRef = ref<HTMLDivElement | null>(null)
 const deviceTypeChartRef = ref<HTMLDivElement | null>(null)
-const qualityRadarRef = ref<HTMLDivElement | null>(null)
-const throughputBarRef = ref<HTMLDivElement | null>(null)
+const phmGaugeRef = ref<HTMLDivElement | null>(null)
+const phmTrendRef = ref<HTMLDivElement | null>(null)
 const trendChartRef = ref<HTMLDivElement | null>(null)
-const phmTrendChartRef = ref<HTMLDivElement | null>(null)
 
+let gaugeChart: echarts.ECharts | null = null
 let deviceTypeChart: echarts.ECharts | null = null
-let qualityRadarChart: echarts.ECharts | null = null
-let throughputBarChart: echarts.ECharts | null = null
-let trendChart: echarts.ECharts | null = null
+let phmGaugeChart: echarts.ECharts | null = null
 let phmTrendChart: echarts.ECharts | null = null
+let trendChart: echarts.ECharts | null = null
 
-// 趋势波形
-const trendTimes = ref<string[]>([])
-const trendAvg = ref<number[]>([])
-const trendMax = ref<number[]>([])
-const trendPressure = ref<number[]>([])
+const MONO = 'Roboto Mono, JetBrains Mono, Consolas, monospace'
+const CYAN = '#00E5D0'
+const BLUE = '#2AA0FF'
+const TXT = '#D9E8FF'
+const DIM = '#7A93B5'
 
-// AI 寿命衰退预测波形
-const phmPoints = ref<number[]>([98, 97, 96, 95, 96, 94, 96, 95, 96])
-
-function initTrendData() {
-  const now = Date.now()
-  trendTimes.value = []
-  trendAvg.value = []
-  trendMax.value = []
-  trendPressure.value = []
-  for (let i = 24; i >= 0; i--) {
-    const t = new Date(now - i * 60 * 1000)
-    trendTimes.value.push(`${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`)
-    const base = 52 + Math.sin(i / 3) * 8 + Math.random() * 3
-    trendAvg.value.push(+base.toFixed(1))
-    trendMax.value.push(+(base + 8 + Math.random() * 4).toFixed(1))
-    trendPressure.value.push(+(28.0 + Math.cos(i / 4) * 1.5 + Math.random() * 0.4).toFixed(1))
+function makeGaugeOption(value: number, label: string): echarts.EChartsCoreOption {
+  return {
+    series: [{
+      type: 'gauge', startAngle: 210, endAngle: -30, min: 0, max: 100,
+      radius: '96%', center: ['50%', '58%'],
+      progress: {
+        show: true, width: 9, roundCap: true,
+        itemStyle: { color: CYAN, shadowColor: 'rgba(0,229,208,0.5)', shadowBlur: 8 }
+      },
+      axisLine: { roundCap: true, lineStyle: { width: 9, color: [[1, 'rgba(42,160,255,0.15)']] } },
+      pointer: { show: false }, axisTick: { show: false },
+      splitLine: { show: false }, axisLabel: { show: false },
+      title: { show: false },
+      detail: {
+        offsetCenter: [0, 0], formatter: `{value}%\n{sub|${label}}`,
+        rich: {
+          sub: { fontSize: 10, color: DIM, padding: [6, 0, 0, 0] }
+        },
+        color: TXT, fontSize: 22, fontFamily: MONO, fontWeight: 600,
+        lineHeight: 24
+      },
+      data: [{ value: +value.toFixed(1) }]
+    }]
   }
 }
 
 function initAllCharts() {
-  // 1. 设备类型分布
+  // 左栏② 生产进度 gauge
+  if (gaugeChartRef.value) {
+    gaugeChart = echarts.init(gaugeChartRef.value)
+    gaugeChart.setOption(makeGaugeOption(progressPct.value, '今日计划完成率'))
+  }
+
+  // 左栏③ 设备类型分布：单色渐变横向条形图
   if (deviceTypeChartRef.value) {
     deviceTypeChart = echarts.init(deviceTypeChartRef.value)
     deviceTypeChart.setOption({
       tooltip: {
-        trigger: 'item',
-        backgroundColor: 'rgba(3, 16, 38, 0.92)',
-        borderColor: '#00f0ff',
-        textStyle: { color: '#fff', fontSize: 12 }
+        trigger: 'axis', axisPointer: { type: 'shadow' },
+        backgroundColor: 'rgba(8,20,40,0.92)', borderColor: 'rgba(42,160,255,0.4)',
+        textStyle: { color: TXT, fontSize: 12 }
       },
-      legend: {
-        orient: 'vertical',
-        right: '4%',
-        top: 'center',
-        itemWidth: 10,
-        itemHeight: 10,
-        textStyle: { color: '#8fa4bf', fontSize: 11 }
-      },
-      color: ['#00f0ff', '#00ff9d', '#2a72ff', '#ffb700', '#ff3d68', '#a855f7'],
-      series: [
-        {
-          name: '设备类型分布',
-          type: 'pie',
-          radius: ['25%', '75%'],
-          center: ['38%', '50%'],
-          roseType: 'radius',
-          itemStyle: { borderRadius: 4, borderColor: '#030c1e', borderWidth: 2 },
-          label: { show: false },
-          data: [
-            { value: 12, name: '掘进机本体' },
-            { value: 18, name: '瓦斯/环境站' },
-            { value: 10, name: '主通风机' },
-            { value: 8, name: '主排水泵' },
-            { value: 14, name: '主皮带运线' },
-            { value: 6, name: '供配电系统' }
-          ]
-        }
-      ]
-    })
-  }
-
-  // 2. Flink 数据质量雷达
-  if (qualityRadarRef.value) {
-    qualityRadarChart = echarts.init(qualityRadarRef.value)
-    qualityRadarChart.setOption({
-      radar: {
-        indicator: [
-          { name: '死值卡死过滤', max: 100 },
-          { name: '物理极值拦截', max: 100 },
-          { name: '网络迟到重排', max: 100 },
-          { name: '断网重传对齐', max: 100 },
-          { name: '方差波动识别', max: 100 }
-        ],
-        center: ['50%', '52%'],
-        radius: '68%',
-        splitNumber: 4,
-        axisName: { color: '#8fa4bf', fontSize: 11 },
-        splitLine: { lineStyle: { color: 'rgba(0, 240, 255, 0.2)' } },
-        splitArea: { areaStyle: { color: ['rgba(0, 240, 255, 0.02)', 'rgba(0, 255, 157, 0.05)'] } },
-        axisLine: { lineStyle: { color: 'rgba(0, 240, 255, 0.3)' } }
-      },
-      series: [
-        {
-          type: 'radar',
-          data: [
-            {
-              value: [99.2, 98.6, 95.4, 97.8, 99.5],
-              name: '质量得分',
-              itemStyle: { color: '#00ff9d' },
-              lineStyle: { width: 2, color: '#00ff9d' },
-              areaStyle: { color: 'rgba(0, 255, 157, 0.35)' }
-            }
-          ]
-        }
-      ]
-    })
-  }
-
-  // 3. Kafka 分区速率柱状图
-  if (throughputBarRef.value) {
-    throughputBarChart = echarts.init(throughputBarRef.value)
-    throughputBarChart.setOption({
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(3, 16, 38, 0.92)',
-        borderColor: '#2a72ff',
-        textStyle: { color: '#fff' }
-      },
-      grid: { top: '15%', right: '3%', bottom: '15%', left: '8%', containLabel: true },
-      xAxis: {
-        type: 'category',
-        data: ['P0-P7', 'P8-P15', 'P16-P23', 'P24-P31'],
-        axisLabel: { color: '#8fa4bf', fontSize: 11 },
-        axisLine: { lineStyle: { color: 'rgba(0, 240, 255, 0.2)' } }
-      },
+      grid: { top: 6, right: 34, bottom: 2, left: 6, containLabel: true },
+      xAxis: { type: 'value', axisLabel: { show: false }, splitLine: { show: false }, axisLine: { show: false } },
       yAxis: {
-        type: 'value',
-        name: 'k msg/s',
-        nameTextStyle: { color: '#8fa4bf', fontSize: 10 },
-        axisLabel: { color: '#8fa4bf', fontSize: 10 },
-        splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.05)', type: 'dashed' } }
+        type: 'category', inverse: true,
+        data: deviceTypeData.map(d => d.name),
+        axisLine: { show: false }, axisTick: { show: false },
+        axisLabel: { color: DIM, fontSize: 11 }
       },
-      series: [
-        {
-          name: '写入吞吐',
-          type: 'bar',
-          barWidth: 14,
-          itemStyle: {
-            borderRadius: [4, 4, 0, 0],
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: '#00f0ff' },
-              { offset: 1, color: 'rgba(0, 240, 255, 0.1)' }
-            ])
-          },
-          data: [42.5, 38.2, 45.1, 39.8]
+      series: [{
+        type: 'bar', barWidth: 9,
+        data: deviceTypeData.map(d => d.value),
+        itemStyle: {
+          borderRadius: [0, 5, 5, 0],
+          color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+            { offset: 0, color: 'rgba(0,229,208,0.20)' },
+            { offset: 1, color: CYAN }
+          ])
         },
-        {
-          name: 'Flink消费',
-          type: 'bar',
-          barWidth: 14,
-          itemStyle: {
-            borderRadius: [4, 4, 0, 0],
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: '#00ff9d' },
-              { offset: 1, color: 'rgba(0, 255, 157, 0.1)' }
-            ])
-          },
-          data: [42.1, 38.0, 44.9, 39.6]
-        }
-      ]
+        showBackground: true,
+        backgroundStyle: { color: 'rgba(42,160,255,0.07)', borderRadius: [0, 5, 5, 0] },
+        label: { show: true, position: 'right', color: TXT, fontSize: 11, fontFamily: MONO }
+      }]
     })
   }
 
-  // 4. 双轴多维趋势波形图
+  // 右栏① PHM 健康 gauge + 近 8 日迷你趋势
+  if (phmGaugeRef.value) {
+    phmGaugeChart = echarts.init(phmGaugeRef.value)
+    phmGaugeChart.setOption(makeGaugeOption(phm.health, '健康指数'))
+  }
+  if (phmTrendRef.value) {
+    phmTrendChart = echarts.init(phmTrendRef.value)
+    phmTrendChart.setOption({
+      grid: { top: 6, right: 4, bottom: 2, left: 4 },
+      xAxis: { type: 'category', show: false, data: ['D-7', 'D-6', 'D-5', 'D-4', 'D-3', 'D-2', 'D-1', '今'] },
+      yAxis: { type: 'value', show: false, min: 80, max: 100 },
+      series: [{
+        type: 'line', smooth: true, showSymbol: false, data: phmHistory,
+        lineStyle: { width: 1.5, color: BLUE },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(42,160,255,0.35)' },
+            { offset: 1, color: 'rgba(42,160,255,0)' }
+          ])
+        }
+      }]
+    })
+  }
+
+  // 底部趋势带
   if (trendChartRef.value) {
     trendChart = echarts.init(trendChartRef.value)
-    trendChart.setOption({
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(3, 16, 38, 0.95)',
-        borderColor: '#00f0ff',
-        textStyle: { color: '#fff', fontSize: 12 }
-      },
-      legend: {
-        data: ['截割电机温度 (℃)', '瞬时峰值 (℃)', '液压主压力 (MPa)'],
-        textStyle: { color: '#8fa4bf', fontSize: 11 },
-        top: 2,
-        right: '3%'
-      },
-      grid: { top: 38, right: '5%', bottom: 20, left: '4%', containLabel: true },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: trendTimes.value,
-        axisLabel: { color: '#8fa4bf', fontSize: 10 },
-        axisLine: { lineStyle: { color: 'rgba(0, 240, 255, 0.2)' } }
-      },
-      yAxis: [
-        {
-          type: 'value',
-          name: '温度 (℃)',
-          nameTextStyle: { color: '#8fa4bf', fontSize: 10 },
-          axisLabel: { color: '#8fa4bf', fontSize: 10 },
-          splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.05)', type: 'dashed' } }
-        },
-        {
-          type: 'value',
-          name: '压力 (MPa)',
-          nameTextStyle: { color: '#8fa4bf', fontSize: 10 },
-          axisLabel: { color: '#8fa4bf', fontSize: 10 },
-          splitLine: { show: false }
-        }
-      ],
-      series: [
-        {
-          name: '截割电机温度 (℃)',
-          type: 'line',
-          smooth: true,
-          showSymbol: false,
-          itemStyle: { color: '#00f0ff' },
-          lineStyle: { width: 2 },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(0, 240, 255, 0.35)' },
-              { offset: 1, color: 'rgba(0, 240, 255, 0.01)' }
-            ])
-          },
-          data: trendAvg.value
-        },
-        {
-          name: '瞬时峰值 (℃)',
-          type: 'line',
-          smooth: true,
-          showSymbol: false,
-          itemStyle: { color: '#ff3d68' },
-          lineStyle: { width: 1.5, type: 'dashed' },
-          data: trendMax.value
-        },
-        {
-          name: '液压主压力 (MPa)',
-          type: 'line',
-          yAxisIndex: 1,
-          smooth: true,
-          showSymbol: false,
-          itemStyle: { color: '#00ff9d' },
-          lineStyle: { width: 2 },
-          data: trendPressure.value
-        }
-      ]
-    })
-  }
-
-  // 5. 右侧 AI 健康度与剩余寿命波形
-  if (phmTrendChartRef.value) {
-    phmTrendChart = echarts.init(phmTrendChartRef.value)
-    updateAiPhmChart()
+    trendChart.setOption(buildTrendOption())
   }
 }
 
-function updateAiPhmChart() {
-  if (!phmTrendChart) return
-  phmTrendChart.setOption({
+// ─────────────────────────────────────────────────────────────
+// 底部趋势带：60 点滚动窗口
+// 【关键】X 轴为类目轴（HH:mm:ss），通过 interval 函数只在「整分钟
+// 首次出现」的点位渲染 HH:mm 标签，杜绝同一分钟标签重复堆积
+// ─────────────────────────────────────────────────────────────
+const trendLabels: string[] = []
+const trendLabelFlags: boolean[] = []  // 该点位是否为其所在分钟的第一个出现点
+const trendTemp: number[] = []
+const trendPress: number[] = []
+const trendSpeed: number[] = []
+const TREND_WINDOW = 60
+
+function pushTrendPoint(temp: number, press: number, speed: number) {
+  const label = fmtHMS(new Date())
+  const prev = trendLabels.length > 0 ? trendLabels[trendLabels.length - 1] : ''
+  trendLabels.push(label)
+  trendLabelFlags.push(label.slice(0, 5) !== prev.slice(0, 5))
+  trendTemp.push(+temp.toFixed(1))
+  trendPress.push(+press.toFixed(1))
+  trendSpeed.push(+speed.toFixed(2))
+  if (trendLabels.length > TREND_WINDOW) {
+    trendLabels.shift(); trendLabelFlags.shift()
+    trendTemp.shift(); trendPress.shift(); trendSpeed.shift()
+  }
+}
+function seedTrend() {
+  const now = Date.now()
+  for (let i = TREND_WINDOW - 1; i >= 0; i--) {
+    const t = new Date(now - i * 3000)
+    const label = fmtHMS(t)
+    const prev = trendLabels.length > 0 ? trendLabels[trendLabels.length - 1] : ''
+    trendLabels.push(label)
+    trendLabelFlags.push(label.slice(0, 5) !== prev.slice(0, 5))
+    const phase = i / 6
+    trendTemp.push(+(56.4 + Math.sin(phase) * 4 + (Math.random() - 0.5) * 1.5).toFixed(1))
+    trendPress.push(+(28.5 + Math.cos(phase) * 1.2 + (Math.random() - 0.5) * 0.5).toFixed(1))
+    trendSpeed.push(+(1.28 + Math.sin(phase / 2) * 0.08 + (Math.random() - 0.5) * 0.05).toFixed(2))
+  }
+}
+
+function buildTrendOption(): echarts.EChartsCoreOption {
+  return {
     tooltip: {
       trigger: 'axis',
-      backgroundColor: 'rgba(3, 16, 38, 0.95)',
-      borderColor: '#ffb700',
-      textStyle: { color: '#fff', fontSize: 11 }
+      backgroundColor: 'rgba(8,20,40,0.94)', borderColor: 'rgba(0,229,208,0.35)',
+      textStyle: { color: TXT, fontSize: 12 }
     },
-    grid: { top: 15, right: 10, bottom: 18, left: 25, containLabel: true },
+    legend: {
+      top: 4, right: 12, itemWidth: 14, itemHeight: 8, itemGap: 16,
+      textStyle: { color: DIM, fontSize: 11 },
+      data: ['截割电机温度 ℃', '液压压力 MPa', '推进速度 m/min']
+    },
+    grid: { top: 30, right: 58, bottom: 22, left: 46 },
     xAxis: {
-      type: 'category',
-      data: ['T-8', 'T-7', 'T-6', 'T-5', 'T-4', 'T-3', 'T-2', 'T-1', 'Now'],
-      axisLabel: { color: '#8fa4bf', fontSize: 9 },
-      axisLine: { lineStyle: { color: 'rgba(0, 240, 255, 0.2)' } }
+      type: 'category', boundaryGap: false, data: trendLabels,
+      axisLine: { lineStyle: { color: 'rgba(42,160,255,0.25)' } },
+      axisTick: { show: false },
+      axisLabel: {
+        color: DIM, fontSize: 10, fontFamily: MONO,
+        // 只在整分钟首个点位显示 HH:mm，避免同分钟标签重复
+        interval: (i: number) => !!trendLabelFlags[i],
+        formatter: (v: string) => v.slice(0, 5)
+      }
     },
-    yAxis: {
-      type: 'value',
-      min: 50,
-      max: 100,
-      axisLabel: { color: '#8fa4bf', fontSize: 9 },
-      splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.05)', type: 'dashed' } }
-    },
+    yAxis: [
+      {
+        type: 'value', name: '℃', min: 40, max: 90,
+        nameTextStyle: { color: DIM, fontSize: 10, align: 'right' },
+        axisLabel: { color: DIM, fontSize: 10, fontFamily: MONO },
+        splitLine: { lineStyle: { color: 'rgba(42,160,255,0.10)', type: 'dashed' } }
+      },
+      {
+        type: 'value', name: 'MPa', min: 0, max: 40,
+        nameTextStyle: { color: DIM, fontSize: 10, align: 'right' },
+        axisLabel: { color: DIM, fontSize: 10, fontFamily: MONO },
+        splitLine: { show: false }
+      }
+    ],
     series: [
       {
-        name: 'AI实时健康指数',
-        type: 'line',
-        smooth: true,
-        showSymbol: true,
-        symbolSize: 4,
-        itemStyle: { color: aiPhmState.value.statusLevel === 'CRITICAL' ? '#ff3d68' : aiPhmState.value.statusLevel === 'ATTENTION' ? '#ffb700' : '#00ff9d' },
-        lineStyle: { width: 2 },
+        name: '截割电机温度 ℃', type: 'line', smooth: true, showSymbol: false,
+        data: trendTemp, lineStyle: { width: 2, color: CYAN }, itemStyle: { color: CYAN },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: aiPhmState.value.statusLevel === 'CRITICAL' ? 'rgba(255, 61, 104, 0.35)' : 'rgba(0, 255, 157, 0.3)' },
-            { offset: 1, color: 'transparent' }
+            { offset: 0, color: 'rgba(0,229,208,0.26)' },
+            { offset: 1, color: 'rgba(0,229,208,0)' }
           ])
-        },
-        data: [...phmPoints.value.slice(0, 8), aiPhmState.value.healthScore]
+        }
+      },
+      {
+        name: '液压压力 MPa', type: 'line', smooth: true, showSymbol: false,
+        yAxisIndex: 1, data: trendPress,
+        lineStyle: { width: 2, color: BLUE }, itemStyle: { color: BLUE },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(42,160,255,0.18)' },
+            { offset: 1, color: 'rgba(42,160,255,0)' }
+          ])
+        }
+      },
+      {
+        name: '推进速度 m/min', type: 'line', smooth: true, showSymbol: false,
+        yAxisIndex: 1, data: trendSpeed,
+        lineStyle: { width: 1.5, color: DIM, type: 'dashed' }, itemStyle: { color: DIM }
       }
     ]
+  }
+}
+
+function updateCharts() {
+  gaugeChart?.setOption({
+    series: [{ data: [{ value: +progressPct.value.toFixed(1) }] }]
+  })
+  phmGaugeChart?.setOption({
+    series: [{ data: [{ value: phm.health }] }]
+  })
+  trendChart?.setOption({
+    xAxis: { data: trendLabels },
+    series: [{ data: trendTemp }, { data: trendPress }, { data: trendSpeed }]
   })
 }
 
-// ── 动态更新与微波动 ──────────────────────────────────────────────────────
-function updateChartsDynamic() {
-  qps.value = Math.round(85000 + Math.random() * 1400 - 700)
-  flinkLatency.value = Math.round(30 + Math.random() * 6 - 3)
-  
-  // 自然微波动环境与设备值
-  envData.value.temp = +(23.8 + Math.random() * 0.4 - 0.2).toFixed(1)
-  envData.value.humidity = +(62.5 + Math.random() * 0.8 - 0.4).toFixed(1)
-  if (currentScenario.value === 'NORMAL') {
-    devSensors.value.cutterTemp = +(56.4 + Math.random() * 1.2 - 0.6).toFixed(1)
-    devSensors.value.motorCurrent = +(168.4 + Math.random() * 3.0 - 1.5).toFixed(1)
-  }
-
-  // 更新趋势图
-  const now = new Date()
-  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  trendTimes.value.shift()
-  trendTimes.value.push(timeStr)
-  
-  const lastAvg = trendAvg.value[trendAvg.value.length - 1] || 54
-  const nextAvg = +(lastAvg + (Math.random() * 2 - 1)).toFixed(1)
-  trendAvg.value.shift()
-  trendAvg.value.push(nextAvg)
-  
-  trendMax.value.shift()
-  trendMax.value.push(+(nextAvg + 8 + Math.random() * 2).toFixed(1))
-  
-  const nextPres = +(devSensors.value.hydraulicPress + (Math.random() * 0.4 - 0.2)).toFixed(1)
-  trendPressure.value.shift()
-  trendPressure.value.push(nextPres)
-
-  if (trendChart) {
-    trendChart.setOption({
-      xAxis: { data: trendTimes.value },
-      series: [
-        { data: trendAvg.value },
-        { data: trendMax.value },
-        { data: trendPressure.value }
-      ]
-    })
-  }
-}
-
 function handleResize() {
+  gaugeChart?.resize()
   deviceTypeChart?.resize()
-  qualityRadarChart?.resize()
-  throughputBarChart?.resize()
-  trendChart?.resize()
+  phmGaugeChart?.resize()
   phmTrendChart?.resize()
+  trendChart?.resize()
 }
 
-// ── 告警数据 ─────────────────────────────────────────────────────────────
-const recentAlerts = ref<any[]>([])
-async function fetchAlerts() {
-  try {
-    const page = await realApi.getAlertRecords({ status: 'TRIGGERED', size: 5, page: 0 })
-    if (page?.content && page.content.length > 0) {
-      recentAlerts.value = page.content.map((r: any) => ({
-        id: r.id,
-        device: r.deviceName || r.deviceId,
-        level: r.level || 'WARNING',
-        message: r.ruleName || r.title?.split('] ')[1] || '遥测阈值超限触发',
-        time: r.triggeredAt ? new Date(r.triggeredAt).toLocaleTimeString() : '刚刚'
-      }))
-    } else {
-      recentAlerts.value = [
-        { id: 101, device: 'EBZ-260-掘进机#01', level: 'CRITICAL', message: '截割电机温度升至 74.8℃ (预警阈值 70℃)', time: '16:08:12' },
-        { id: 102, device: 'DEV-环境站#03', level: 'WARNING', message: '工作面甲烷浓度轻微上扬至 0.65%', time: '16:09:40' },
-        { id: 103, device: 'MD-280-排水泵#02', level: 'INFO', message: '自动排空自愈保护触发，备用回路已联动', time: '16:10:05' }
-      ]
-    }
-  } catch {
-    recentAlerts.value = [
-      { id: 101, device: 'EBZ-260-掘进机#01', level: 'CRITICAL', message: '截割电机温度升至 74.8℃ (预警阈值 70℃)', time: '16:08:12' }
-    ]
-  }
-}
+// ─────────────────────────────────────────────────────────────
+// 定时器编排（onActivated / onDeactivated 安全启停）
+// ─────────────────────────────────────────────────────────────
+let dataTimer: ReturnType<typeof setInterval> | undefined
+let telemetryTimer: ReturnType<typeof setInterval> | undefined
+let linkageTimer: ReturnType<typeof setInterval> | undefined
 
-// ── 定时器与自动场景轮询 (让大屏彻底动起来) ────────────────────────────────
-let mainTimer: ReturnType<typeof setInterval> | undefined
-let scenarioCycleTimer: ReturnType<typeof setInterval> | undefined
-
-function startScenarioCycle() {
-  let idx = 0
-  const seq: ('NORMAL' | 'HIGH_LOAD' | 'WEAR_WARN' | 'COOLING_ADAPT')[] = ['NORMAL', 'HIGH_LOAD', 'COOLING_ADAPT', 'NORMAL']
-  scenarioCycleTimer = setInterval(() => {
-    idx = (idx + 1) % seq.length
-    switchScenario(seq[idx])
-  }, 12000)
-}
-
-function startDataLoop() {
-  stopDataLoop()
+function startLoops() {
+  stopLoops()
   ws.connect()
-  wsUnsubscribe = ws.onAllDeviceData(appendTelemetryData)
-  deviceStore.startRealtimeUpdates(4000)
-  mainTimer = setInterval(() => {
-    updateChartsDynamic()
+  // [接入点] WebSocket 全量设备数据 → 遥测流（真实数据与 mock 混合展示）
+  wsUnsub = ws.onAllDeviceData(handleWsData)
+  dataTimer = setInterval(() => {
+    tickKpis(); tickEnv(); tickMachine(); tickPoints(); tickPhm()
+    pushTrendPoint(machine.cutterTemp, machine.hydraulicPress, machine.advanceSpeed)
+    updateCharts()
   }, 3000)
-  startScenarioCycle()
+  telemetryTimer = setInterval(mockTelemetryTick, 2000)
+  linkageTimer = setInterval(linkageTick, 12000)
 }
-
-function stopDataLoop() {
-  deviceStore.stopRealtimeUpdates()
-  if (wsUnsubscribe) { wsUnsubscribe(); wsUnsubscribe = null }
-  if (mainTimer) { clearInterval(mainTimer); mainTimer = undefined }
-  if (scenarioCycleTimer) { clearInterval(scenarioCycleTimer); scenarioCycleTimer = undefined }
+function stopLoops() {
+  if (dataTimer) { clearInterval(dataTimer); dataTimer = undefined }
+  if (telemetryTimer) { clearInterval(telemetryTimer); telemetryTimer = undefined }
+  if (linkageTimer) { clearInterval(linkageTimer); linkageTimer = undefined }
+  if (wsUnsub) { wsUnsub(); wsUnsub = null }
 }
 
 onMounted(async () => {
   updateClock()
   clockTimer = setInterval(updateClock, 1000)
-  initTrendData()
-  seedInitialTelemetry()
-  
-  await Promise.allSettled([
-    deviceStore.fetchDevices(),
-    fetchAlerts()
-  ])
-  
-  nextTick(() => {
-    initAllCharts()
-    window.addEventListener('resize', handleResize)
-  })
-  
-  startDataLoop()
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+
+  seedTrend()
+  seedLinkage()
+  for (let i = 0; i < 9; i++) mockTelemetryTick()
+
+  // [接入点] 真实设备数/在线数（deviceStore）
+  try {
+    await deviceStore.fetchDevices()
+    if (deviceStore.totalCount > 0) {
+      kpiValues.devices = deviceStore.totalCount
+      kpiValues.online = deviceStore.onlineCount
+    }
+  } catch { /* 保持 mock 值 */ }
+  fetchAlertMarquee()
+
+  await nextTick()
+  initAllCharts()
+  window.addEventListener('resize', handleResize)
+  startLoops()
 })
 
-onActivated(() => { startDataLoop() })
-onDeactivated(() => { stopDataLoop() })
+onActivated(() => {
+  startLoops()
+  handleResize()
+})
+
+onDeactivated(() => {
+  stopLoops()
+})
 
 onUnmounted(() => {
-  stopDataLoop()
+  stopLoops()
   if (clockTimer) clearInterval(clockTimer)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
   window.removeEventListener('resize', handleResize)
+  gaugeChart?.dispose()
   deviceTypeChart?.dispose()
-  qualityRadarChart?.dispose()
-  throughputBarChart?.dispose()
-  trendChart?.dispose()
+  phmGaugeChart?.dispose()
   phmTrendChart?.dispose()
+  trendChart?.dispose()
+  gaugeChart = null
+  deviceTypeChart = null
+  phmGaugeChart = null
+  phmTrendChart = null
+  trendChart = null
 })
-
-function go(path: string) { router.push(path) }
 </script>
 
-<template>
-  <div class="dv-wrapper" :class="{ 'is-fullscreen': isFullscreen }">
-    <div class="dv-screen">
-      
-      <!-- ════════════ 1. 顶部 Header ════════════ -->
-      <header class="dv-header">
-        <div class="header-side header-left">
-          <div class="time-box">
-            <span class="live-blink-dot"></span>
-            <span class="time-val font-mono">{{ currentTime }}</span>
-          </div>
-          <div class="running-box">
-            <span class="kicker-tag">系统安全运行</span>
-            <strong class="run-val font-mono">{{ runningDuration }}</strong>
-          </div>
-        </div>
-
-        <div class="header-center">
-          <div class="header-title-glow">工业物联网大数据与实时湖仓监控中心</div>
-          <div class="header-subtitle">INDUSTRIAL IOT BIG DATA & LAKEHOUSE OPERATIONS CENTER</div>
-        </div>
-
-        <div class="header-side header-right">
-          <div class="lake-nodes">
-            <span class="node-pill online"><i class="dot"></i> Flink 1.18</span>
-            <span class="node-pill online"><i class="dot"></i> Kafka 32P</span>
-            <span class="node-pill online"><i class="dot"></i> Iceberg</span>
-          </div>
-          <div class="action-buttons">
-            <el-tooltip content="全屏切换" placement="bottom">
-              <button class="icon-btn" @click="toggleFullScreen">
-                <el-icon><FullScreen /></el-icon>
-              </button>
-            </el-tooltip>
-            <button class="nav-btn primary" @click="go('/monitor')">
-              <el-icon><TrendCharts /></el-icon> 实时监控
-            </button>
-            <button class="nav-btn" @click="go('/devices')">
-              <el-icon><Cpu /></el-icon> 设备中心
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <!-- ════════════ 2. 核心大数据与指标卡片阵列 (7大KPI) ════════════ -->
-      <section class="kpi-array">
-        <div class="kpi-card">
-          <div class="kpi-icon blue"><el-icon><Cpu /></el-icon></div>
-          <div class="kpi-body">
-            <span class="kpi-label">设备接入总量</span>
-            <strong class="kpi-num txt-blue font-mono">{{ deviceStore.totalCount || 50 }} <small>台</small></strong>
-            <span class="kpi-sub">多协议统一网关</span>
-          </div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-icon green"><el-icon><CircleCheck /></el-icon></div>
-          <div class="kpi-body">
-            <span class="kpi-label">在线设备数</span>
-            <strong class="kpi-num txt-green font-mono">{{ deviceStore.onlineCount || 47 }} <small>台</small></strong>
-            <span class="kpi-sub">在线率 {{ onlineRate || 94 }}%</span>
-          </div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-icon cyan"><el-icon><DataAnalysis /></el-icon></div>
-          <div class="kpi-body">
-            <span class="kpi-label">实时流接入 (QPS)</span>
-            <strong class="kpi-num txt-cyan font-mono">{{ qps.toLocaleString() }} <small>pts/s</small></strong>
-            <span class="kpi-sub">Flink 延迟: <em class="txt-green font-mono">{{ flinkLatency }}ms</em></span>
-          </div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-icon purple"><el-icon><Histogram /></el-icon></div>
-          <div class="kpi-body">
-            <span class="kpi-label">Kafka 吞吐速率</span>
-            <strong class="kpi-num txt-purple font-mono">{{ kafkaThroughput }}</strong>
-            <span class="kpi-sub">32 并发 Partitions</span>
-          </div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-icon amber"><el-icon><Odometer /></el-icon></div>
-          <div class="kpi-body">
-            <span class="kpi-label">湖仓累计存储</span>
-            <strong class="kpi-num txt-amber font-mono">{{ lakeStorage }}</strong>
-            <span class="kpi-sub">Iceberg + TDengine</span>
-          </div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-icon teal"><el-icon><Connection /></el-icon></div>
-          <div class="kpi-body">
-            <span class="kpi-label">流清洗合格率</span>
-            <strong class="kpi-num txt-teal font-mono">{{ cleanPassRate }}</strong>
-            <span class="kpi-sub">已阻断死值 {{ deadValueBlocked }}</span>
-          </div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-icon red"><el-icon><WarningFilled /></el-icon></div>
-          <div class="kpi-body">
-            <span class="kpi-label">待响应告警</span>
-            <strong class="kpi-num txt-red font-mono">{{ recentAlerts.length }} <small>条</small></strong>
-            <span class="kpi-sub">自动溯源闭环</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- ════════════ 3. 主体内容布局 (左 - 中 - 右) ════════════ -->
-      <main class="dv-main-grid">
-        
-        <!-- ── 左侧：设备分布与流计算质量 ── -->
-        <aside class="grid-col col-left">
-          <!-- 模块 1: 设备类型分布 -->
-          <div class="dv-panel">
-            <div class="panel-header">
-              <span class="panel-title-text">设备类型与拓扑分布</span>
-              <span class="panel-tag">ROSE CHART</span>
-            </div>
-            <div class="panel-body">
-              <div ref="deviceTypeChartRef" class="chart-box"></div>
-            </div>
-            <div class="corner-mark top-l"></div><div class="corner-mark top-r"></div>
-            <div class="corner-mark btm-l"></div><div class="corner-mark btm-r"></div>
-          </div>
-
-          <!-- 模块 2: Flink 数据质量清洗 -->
-          <div class="dv-panel">
-            <div class="panel-header">
-              <span class="panel-title-text">Flink 数据质量清洗雷达</span>
-              <span class="panel-tag tag-green">AI 实时方差</span>
-            </div>
-            <div class="panel-body">
-              <div ref="qualityRadarRef" class="chart-box"></div>
-            </div>
-            <div class="corner-mark top-l"></div><div class="corner-mark top-r"></div>
-            <div class="corner-mark btm-l"></div><div class="corner-mark btm-r"></div>
-          </div>
-
-          <!-- 模块 3: Kafka 分区速率 -->
-          <div class="dv-panel">
-            <div class="panel-header">
-              <span class="panel-title-text">Kafka 消息分区吞吐</span>
-              <span class="panel-tag">32 PARTITIONS</span>
-            </div>
-            <div class="panel-body">
-              <div ref="throughputBarRef" class="chart-box"></div>
-            </div>
-            <div class="corner-mark top-l"></div><div class="corner-mark top-r"></div>
-            <div class="corner-mark btm-l"></div><div class="corner-mark btm-r"></div>
-          </div>
-        </aside>
-
-        <!-- ── 中间核心区：三大子区域 (环境传感器 + 掘进机模型 + 本体设备传感器) ── -->
-        <section class="grid-col col-center">
-          
-          <!-- ★ 重构核心：中间三区域主视窗 ★ -->
-          <div class="dv-panel roadheader-trio-panel">
-            <div class="panel-header trio-header">
-              <div class="trio-title-left">
-                <span class="panel-title-text">掘进工作面与掘进机本体智能监控系统</span>
-                <span class="machine-status-badge" :class="machineState.status.toLowerCase()">
-                  <span class="live-dot"></span> {{ machineState.statusText }}
-                </span>
-              </div>
-              
-              <!-- 演示工况快捷切换 (让大屏彻底动起来) -->
-              <div class="scenario-toggles">
-                <span class="sc-label">工况情境:</span>
-                <button 
-                  v-for="sc in scenarioList" 
-                  :key="sc.key" 
-                  class="sc-btn"
-                  :class="{ active: currentScenario === sc.key }"
-                  @click="switchScenario(sc.key as any)"
-                >
-                  {{ sc.name }}
-                </button>
-              </div>
-            </div>
-
-            <!-- 三区域主体 -->
-            <div class="trio-body">
-              
-              <!-- 【子区域 1：环境传感器数据 (左边)】 -->
-              <div class="trio-sub-col sub-env">
-                <div class="sub-col-title">
-                  <span>🍃 巷道环境监测群</span>
-                  <small>实时通风安全</small>
-                </div>
-                <div class="env-cards-grid">
-                  
-                  <div class="env-item" :class="{ warn: envData.ch4 > 0.5 }">
-                    <div class="env-item-header">
-                      <span class="env-name">甲烷浓度 (CH4)</span>
-                      <span class="env-status" :class="envData.ch4 > 0.5 ? 'txt-orange' : 'txt-green'">
-                        {{ envData.ch4 > 0.5 ? '轻微上扬' : '安全正常' }}
-                      </span>
-                    </div>
-                    <div class="env-val-row">
-                      <strong class="env-val font-mono" :class="envData.ch4 > 0.5 ? 'txt-orange' : 'txt-cyan'">
-                        {{ envData.ch4 }}
-                      </strong>
-                      <span class="env-unit">%</span>
-                    </div>
-                    <div class="env-bar"><div class="env-bar-fill" :style="{ width: (envData.ch4 * 100) + '%' }"></div></div>
-                  </div>
-
-                  <div class="env-item">
-                    <div class="env-item-header">
-                      <span class="env-name">一氧化碳 (CO)</span>
-                      <span class="env-status txt-green">正常</span>
-                    </div>
-                    <div class="env-val-row">
-                      <strong class="env-val font-mono txt-cyan">{{ envData.co }}</strong>
-                      <span class="env-unit">ppm</span>
-                    </div>
-                    <div class="env-bar"><div class="env-bar-fill" :style="{ width: (envData.co * 8) + '%' }"></div></div>
-                  </div>
-
-                  <div class="env-item">
-                    <div class="env-item-header">
-                      <span class="env-name">环境温度 / 湿度</span>
-                    </div>
-                    <div class="env-val-row">
-                      <strong class="env-val font-mono txt-green">{{ envData.temp }} <small>℃</small></strong>
-                      <span class="env-sep">/</span>
-                      <strong class="env-val font-mono txt-cyan">{{ envData.humidity }} <small>%</small></strong>
-                    </div>
-                  </div>
-
-                  <div class="env-item" :class="{ warn: envData.dust > 20 }">
-                    <div class="env-item-header">
-                      <span class="env-name">工作面粉尘浓度</span>
-                      <span class="env-status" :class="envData.dust > 20 ? 'txt-orange' : 'txt-green'">
-                        {{ envData.dust > 20 ? '开启喷雾' : '优良' }}
-                      </span>
-                    </div>
-                    <div class="env-val-row">
-                      <strong class="env-val font-mono" :class="envData.dust > 20 ? 'txt-orange' : 'txt-teal'">
-                        {{ envData.dust }}
-                      </strong>
-                      <span class="env-unit">mg/m³</span>
-                    </div>
-                  </div>
-
-                  <div class="env-item">
-                    <div class="env-item-header">
-                      <span class="env-name">局部通风风速</span>
-                    </div>
-                    <div class="env-val-row">
-                      <strong class="env-val font-mono txt-cyan">{{ envData.windSpeed }}</strong>
-                      <span class="env-unit">m/s</span>
-                    </div>
-                  </div>
-
-                  <div class="env-item">
-                    <div class="env-item-header">
-                      <span class="env-name">巷道大气压 / 负压</span>
-                    </div>
-                    <div class="env-val-row">
-                      <strong class="env-val font-mono txt-purple">{{ envData.pressure }}</strong>
-                      <span class="env-unit">kPa</span>
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-
-              <!-- 【子区域 2：掘进机图片与数字模型中心 (中间)】 -->
-              <div class="trio-sub-col sub-machine">
-                <div class="machine-display-frame">
-                  <!-- 顶部机型与工况标识 -->
-                  <div class="machine-head-info">
-                    <div class="machine-type-tag">EBZ-260 智能重型悬臂式掘进机</div>
-                    <div class="machine-attitude-box font-mono">
-                      <span>俯仰: <em>{{ machineState.pitch }}°</em></span>
-                      <span>横滚: <em>{{ machineState.roll }}°</em></span>
-                      <span>航向: <em>{{ machineState.yaw }}°</em></span>
-                    </div>
-                  </div>
-
-                  <!-- 掘进机立体图与科技光圈 -->
-                  <div class="machine-img-wrapper">
-                    <div class="cyber-glow-bg"></div>
-                    <img src="/roadheader.png" alt="掘进机模型" class="machine-img" />
-                    
-                    <!-- 动态高亮锚点 (Hotspots 精准对齐机身结构) -->
-                    <div class="hotspot pt-cutter">
-                      <span class="hotspot-dot"></span>
-                      <div class="hotspot-tip font-mono">截割头: {{ devSensors.cutterTemp }}℃</div>
-                    </div>
-
-                    <div class="hotspot pt-pump">
-                      <span class="hotspot-dot"></span>
-                      <div class="hotspot-tip font-mono">主泵压: {{ devSensors.hydraulicPress }}MPa</div>
-                    </div>
-
-                    <div class="hotspot pt-track">
-                      <span class="hotspot-dot"></span>
-                      <div class="hotspot-tip font-mono">履带进尺: {{ machineState.advance }}m</div>
-                    </div>
-                  </div>
-
-                  <!-- 底部作业参数指示带 -->
-                  <div class="machine-foot-bar">
-                    <div class="foot-param">
-                      <span>截割转速</span>
-                      <strong class="font-mono txt-cyan">{{ machineState.rpm }} <small>rpm</small></strong>
-                    </div>
-                    <div class="foot-param">
-                      <span>主电机电流</span>
-                      <strong class="font-mono" :class="devSensors.motorCurrent > 190 ? 'txt-orange' : 'txt-green'">
-                        {{ devSensors.motorCurrent }} <small>A</small>
-                      </strong>
-                    </div>
-                    <div class="foot-param">
-                      <span>推进位移</span>
-                      <strong class="font-mono txt-purple">{{ machineState.advance }} <small>m</small></strong>
-                    </div>
-                    <div class="foot-param">
-                      <span>冷却水流量</span>
-                      <strong class="font-mono txt-teal">{{ devSensors.coolingFlow }} <small>L/min</small></strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 【子区域 3：掘进机本体设备传感器数据 (右边)】 -->
-              <div class="trio-sub-col sub-device">
-                <div class="sub-col-title">
-                  <span>⚙️ 掘进机本体传感器</span>
-                  <small>工控与动力指标</small>
-                </div>
-                <div class="device-cards-grid">
-                  
-                  <div class="dev-item" :class="{ alert: devSensors.cutterTemp > 75 }">
-                    <div class="dev-item-header">
-                      <span class="dev-name">截割头电机温度</span>
-                      <span class="dev-tag" :class="devSensors.cutterTemp > 75 ? 'tag-red' : 'tag-green'">
-                        {{ devSensors.cutterTemp > 75 ? '温升告警' : '正常' }}
-                      </span>
-                    </div>
-                    <div class="dev-val-row">
-                      <strong class="dev-val font-mono" :class="devSensors.cutterTemp > 75 ? 'txt-red' : 'txt-cyan'">
-                        {{ devSensors.cutterTemp }}
-                      </strong>
-                      <span class="dev-unit">℃</span>
-                      <small class="dev-limit font-mono">阈值: 80℃</small>
-                    </div>
-                    <div class="dev-bar"><div class="dev-bar-fill" :style="{ width: (devSensors.cutterTemp / 85 * 100) + '%' }"></div></div>
-                  </div>
-
-                  <div class="dev-item">
-                    <div class="dev-item-header">
-                      <span class="dev-name">油泵主电机温度</span>
-                      <span class="dev-tag tag-green">正常</span>
-                    </div>
-                    <div class="dev-val-row">
-                      <strong class="dev-val font-mono txt-green">{{ devSensors.oilPumpTemp }}</strong>
-                      <span class="dev-unit">℃</span>
-                    </div>
-                  </div>
-
-                  <div class="dev-item" :class="{ warn: devSensors.hydraulicPress > 30 }">
-                    <div class="dev-item-header">
-                      <span class="dev-name">液压系统主压力</span>
-                      <span class="dev-tag" :class="devSensors.hydraulicPress > 30 ? 'tag-amber' : 'tag-green'">
-                        {{ devSensors.hydraulicPress > 30 ? '高压运行' : '标准' }}
-                      </span>
-                    </div>
-                    <div class="dev-val-row">
-                      <strong class="dev-val font-mono" :class="devSensors.hydraulicPress > 30 ? 'txt-amber' : 'txt-cyan'">
-                        {{ devSensors.hydraulicPress }}
-                      </strong>
-                      <span class="dev-unit">MPa</span>
-                      <small class="dev-limit font-mono">额定 31.5</small>
-                    </div>
-                  </div>
-
-                  <div class="dev-item">
-                    <div class="dev-item-header">
-                      <span class="dev-name">冷却水回路水压</span>
-                    </div>
-                    <div class="dev-val-row">
-                      <strong class="dev-val font-mono txt-teal">{{ devSensors.coolingPress }}</strong>
-                      <span class="dev-unit">MPa</span>
-                    </div>
-                  </div>
-
-                  <div class="dev-item" :class="{ alert: devSensors.vibration > 4.0 }">
-                    <div class="dev-item-header">
-                      <span class="dev-name">截割三轴振动烈度</span>
-                      <span class="dev-tag" :class="devSensors.vibration > 4.0 ? 'tag-red' : 'tag-green'">
-                        {{ devSensors.vibration > 4.0 ? '异常加剧' : '稳态' }}
-                      </span>
-                    </div>
-                    <div class="dev-val-row">
-                      <strong class="dev-val font-mono" :class="devSensors.vibration > 4.0 ? 'txt-red' : 'txt-cyan'">
-                        {{ devSensors.vibration }}
-                      </strong>
-                      <span class="dev-unit">mm/s</span>
-                      <small class="dev-limit font-mono">RMS</small>
-                    </div>
-                  </div>
-
-                  <div class="dev-item">
-                    <div class="dev-item-header">
-                      <span class="dev-name">齿轮箱润滑油温</span>
-                    </div>
-                    <div class="dev-val-row">
-                      <strong class="dev-val font-mono txt-purple">{{ devSensors.gearOilTemp }}</strong>
-                      <span class="dev-unit">℃</span>
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-
-            </div>
-            
-            <div class="corner-mark top-l"></div><div class="corner-mark top-r"></div>
-            <div class="corner-mark btm-l"></div><div class="corner-mark btm-r"></div>
-          </div>
-
-          <!-- 模块 2: 实时多维流式聚合趋势波形 -->
-          <div class="dv-panel trend-panel">
-            <div class="panel-header">
-              <span class="panel-title-text">实时 1分钟滑动窗口流式多维聚合波形 (Doris & Flink)</span>
-              <span class="panel-tag tag-cyan">双 Y 轴连续采样</span>
-            </div>
-            <div class="panel-body">
-              <div ref="trendChartRef" class="chart-box"></div>
-            </div>
-            <div class="corner-mark top-l"></div><div class="corner-mark top-r"></div>
-            <div class="corner-mark btm-l"></div><div class="corner-mark btm-r"></div>
-          </div>
-        </section>
-
-        <!-- ── 右侧：AI 预测性维护 (根据TCP数据/工况动态跳变) + 遥测流 + 告警 ── -->
-        <aside class="grid-col col-right">
-          
-          <!-- 模块 1: ★ 动态 AI 预测性维护与寿命 (PHM) ★ -->
-          <div class="dv-panel phm-panel">
-            <div class="panel-header">
-              <span class="panel-title-text">AI 预测性维护与寿命 (PHM)</span>
-              <span class="panel-tag tag-amber">动态推断中</span>
-            </div>
-            <div class="panel-body phm-body">
-              
-              <!-- 掘进机专属 AI 实时健康卡片 (动态响应) -->
-              <div class="ai-hero-card" :class="aiPhmState.statusLevel.toLowerCase()">
-                <div class="ai-head-row">
-                  <div class="ai-title-block">
-                    <strong>掘进机主传动健康指数</strong>
-                    <small class="font-mono">实时故障概率: {{ aiPhmState.anomalyProb }}%</small>
-                  </div>
-                  <div class="ai-badge-box" :class="aiPhmState.statusLevel.toLowerCase()">
-                    {{ aiPhmState.statusLevel }}
-                  </div>
-                </div>
-
-                <div class="ai-score-metric">
-                  <div class="metric-block">
-                    <span class="m-lbl">综合健康评分</span>
-                    <div class="m-val-row">
-                      <strong class="font-mono score-huge" :class="aiPhmState.statusLevel === 'CRITICAL' ? 'txt-red' : aiPhmState.statusLevel === 'ATTENTION' ? 'txt-amber' : 'txt-green'">
-                        {{ aiPhmState.healthScore }}
-                      </strong>
-                      <span class="score-unit">/ 100</span>
-                    </div>
-                  </div>
-                  
-                  <div class="metric-block">
-                    <span class="m-lbl">预测剩余寿命 (RUL)</span>
-                    <div class="m-val-row">
-                      <strong class="font-mono rul-huge txt-cyan">
-                        {{ aiPhmState.rulDays }}
-                      </strong>
-                      <span class="score-unit">天</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 动态微图表 -->
-                <div class="ai-spark-chart">
-                  <div ref="phmTrendChartRef" style="width: 100%; height: 75px;"></div>
-                </div>
-
-                <!-- AI 诊断建议提示框 -->
-                <div class="ai-advice-box">
-                  <el-icon><Opportunity /></el-icon>
-                  <span>{{ aiPhmState.recommendation }}</span>
-                </div>
-              </div>
-
-              <!-- 全矿机组健康度对比列表 -->
-              <div class="phm-fleet-list">
-                <div v-for="item in phmFleetList" :key="item.id" class="phm-mini-item" :class="item.status.toLowerCase()">
-                  <div class="p-mini-head">
-                    <span class="p-name text-ellipsis">{{ item.id }}</span>
-                    <span class="p-rul font-mono">{{ item.rul }}天</span>
-                  </div>
-                  <div class="p-mini-bar">
-                    <div class="p-bar-track"><div class="p-bar-val" :style="{ width: item.score + '%' }"></div></div>
-                    <span class="p-score font-mono">{{ item.score }}分</span>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-            <div class="corner-mark top-l"></div><div class="corner-mark top-r"></div>
-            <div class="corner-mark btm-l"></div><div class="corner-mark btm-r"></div>
-          </div>
-
-          <!-- 模块 2: 毫秒级实时遥测流 -->
-          <div class="dv-panel telemetry-stream-panel">
-            <div class="panel-header">
-              <span class="panel-title-text">毫秒级遥测数据流 (Live Telemetry)</span>
-              <span class="panel-tag tag-green">TCP / WS PUSH</span>
-            </div>
-            <div class="panel-body telemetry-body">
-              <div class="telemetry-table-header">
-                <span class="col-time">时间</span>
-                <span class="col-dev">设备 / 节点</span>
-                <span class="col-sensor">传感器</span>
-                <span class="col-val">实时读数</span>
-              </div>
-              <div class="telemetry-scroll-wrapper">
-                <div 
-                  v-for="item in telemetryStream" 
-                  :key="item.id" 
-                  class="telemetry-row-item"
-                  :class="{ highlight: item.highlight }"
-                >
-                  <span class="col-time font-mono">{{ item.time }}</span>
-                  <span class="col-dev text-ellipsis">{{ item.device }}</span>
-                  <span class="col-sensor text-ellipsis">{{ item.sensor }}</span>
-                  <span class="col-val font-mono" :class="item.status === 'warning' ? 'txt-orange' : 'txt-cyan'">
-                    {{ Number(item.value).toFixed(2) }} <small>{{ item.unit }}</small>
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div class="corner-mark top-l"></div><div class="corner-mark top-r"></div>
-            <div class="corner-mark btm-l"></div><div class="corner-mark btm-r"></div>
-          </div>
-
-          <!-- 模块 3: 实时告警智能溯源中心 -->
-          <div class="dv-panel">
-            <div class="panel-header">
-              <span class="panel-title-text">智能告警联动中心</span>
-              <span class="panel-tag tag-red">{{ recentAlerts.length }} 待响应</span>
-            </div>
-            <div class="panel-body alerts-body">
-              <div v-for="alert in recentAlerts" :key="alert.id" class="alert-strip" :class="alert.level.toLowerCase()">
-                <div class="alert-indicator"></div>
-                <div class="alert-detail">
-                  <div class="alert-dev-row">
-                    <strong class="dev-name">{{ alert.device }}</strong>
-                    <time class="alert-ts font-mono">{{ alert.time }}</time>
-                  </div>
-                  <div class="alert-msg-text text-ellipsis">{{ alert.message }}</div>
-                </div>
-              </div>
-            </div>
-            <div class="corner-mark top-l"></div><div class="corner-mark top-r"></div>
-            <div class="corner-mark btm-l"></div><div class="corner-mark btm-r"></div>
-          </div>
-
-        </aside>
-
-      </main>
-
-    </div>
-  </div>
-</template>
-
 <style scoped>
-/* ════════════ 全屏与容器主题 ════════════ */
-.dv-wrapper {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background-color: #030c1e;
-  background-image: 
-    radial-gradient(circle at 50% 10%, rgba(0, 240, 255, 0.08) 0%, transparent 60%),
-    linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
-  background-size: 100% 100%, 36px 36px, 36px 36px;
-  color: #c5d8ea;
-  z-index: 100;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  user-select: none;
-}
+/* ═══════════ 设计令牌 ═══════════ */
+.dv-wrap {
+  --bg: #0b1120;
+  --panel: rgba(13, 27, 52, 0.6);
+  --line: rgba(42, 160, 255, 0.22);
+  --cyan: #00e5d0;
+  --blue: #2aa0ff;
+  --txt: #d9e8ff;
+  --dim: #7a93b5;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --bad: #ef4444;
+  --mono: 'Roboto Mono', 'JetBrains Mono', Consolas, monospace;
 
-.dv-wrapper.is-fullscreen {
-  position: fixed;
-  z-index: 99999;
-}
-
-.dv-screen {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 10px 18px 14px;
+  width: 100%;
+  height: 100vh;
   box-sizing: border-box;
-  height: 100%;
-  gap: 10px;
-}
-
-/* ════════════ 1. Header 样式 ════════════ */
-.dv-header {
-  height: 60px;
+  overflow: hidden;
   display: grid;
-  grid-template-columns: 320px 1fr 380px;
-  align-items: center;
-  position: relative;
-  border-bottom: 1px solid rgba(0, 240, 255, 0.2);
-  background: linear-gradient(180deg, rgba(0, 240, 255, 0.06) 0%, rgba(3, 12, 30, 0.6) 100%);
-}
-
-.header-side { display: flex; align-items: center; }
-.header-left { gap: 16px; }
-.time-box { display: flex; align-items: center; gap: 8px; color: #00f0ff; font-size: 13px; font-weight: 600; }
-.live-blink-dot { width: 7px; height: 7px; border-radius: 50%; background: #00ff9d; box-shadow: 0 0 8px #00ff9d; animation: pulse-dot 1.8s infinite; }
-@keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
-
-.running-box { display: flex; flex-direction: column; border-left: 1px solid rgba(0, 240, 255, 0.2); padding-left: 12px; }
-.kicker-tag { font-size: 10px; color: #7b94ad; letter-spacing: 0.05em; }
-.run-val { font-size: 12px; color: #00ff9d; }
-
-.header-center { text-align: center; }
-.header-title-glow { font-size: 23px; font-weight: 800; letter-spacing: 3px; background: linear-gradient(180deg, #ffffff 30%, #00f0ff 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 0 20px rgba(0, 240, 255, 0.5); }
-.header-subtitle { font-size: 9px; color: rgba(0, 240, 255, 0.7); letter-spacing: 2px; margin-top: 1px; font-family: 'Roboto Mono', monospace; }
-
-.header-right { justify-content: flex-end; gap: 12px; }
-.lake-nodes { display: flex; gap: 6px; }
-.node-pill { font-size: 10px; padding: 2px 7px; border-radius: 3px; background: rgba(0, 240, 255, 0.08); border: 1px solid rgba(0, 240, 255, 0.25); color: #9db2c9; display: flex; align-items: center; gap: 4px; }
-.node-pill.online .dot { width: 5px; height: 5px; border-radius: 50%; background: #00ff9d; box-shadow: 0 0 6px #00ff9d; }
-
-.action-buttons { display: flex; gap: 6px; }
-.icon-btn, .nav-btn { background: rgba(0, 240, 255, 0.1); border: 1px solid rgba(0, 240, 255, 0.35); color: #00f0ff; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 4px 10px; transition: all 0.25s; }
-.icon-btn:hover, .nav-btn:hover { background: rgba(0, 240, 255, 0.25); box-shadow: 0 0 12px rgba(0, 240, 255, 0.4); color: #fff; }
-.nav-btn.primary { background: rgba(0, 240, 255, 0.2); border-color: #00f0ff; font-weight: 600; }
-
-/* ════════════ 2. 7大核心 KPI 阵列 ════════════ */
-.kpi-array { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; height: 68px; }
-.kpi-card { background: rgba(4, 19, 44, 0.7); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 5px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; position: relative; overflow: hidden; }
-.kpi-card::after { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.6), transparent); }
-
-.kpi-icon { width: 34px; height: 34px; border-radius: 6px; display: grid; place-items: center; font-size: 17px; flex-shrink: 0; }
-.kpi-icon.blue { background: rgba(42, 114, 255, 0.15); color: #2a72ff; border: 1px solid rgba(42, 114, 255, 0.4); }
-.kpi-icon.green { background: rgba(0, 255, 157, 0.15); color: #00ff9d; border: 1px solid rgba(0, 255, 157, 0.4); }
-.kpi-icon.cyan { background: rgba(0, 240, 255, 0.15); color: #00f0ff; border: 1px solid rgba(0, 240, 255, 0.4); }
-.kpi-icon.purple { background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.4); }
-.kpi-icon.amber { background: rgba(255, 183, 0, 0.15); color: #ffb700; border: 1px solid rgba(255, 183, 0, 0.4); }
-.kpi-icon.teal { background: rgba(20, 184, 166, 0.15); color: #14b8a6; border: 1px solid rgba(20, 184, 166, 0.4); }
-.kpi-icon.red { background: rgba(255, 61, 104, 0.15); color: #ff3d68; border: 1px solid rgba(255, 61, 104, 0.4); }
-
-.kpi-body { display: flex; flex-direction: column; min-width: 0; }
-.kpi-label { font-size: 10px; color: #8fa4bf; white-space: nowrap; }
-.kpi-num { font-size: 16px; font-weight: 700; line-height: 1.2; }
-.kpi-num small { font-size: 10px; font-weight: 400; color: #7b94ad; }
-.kpi-sub { font-size: 9px; color: #657b94; white-space: nowrap; }
-
-/* ════════════ 3. 主体三列排布 ════════════ */
-.dv-main-grid { flex: 1; display: grid; grid-template-columns: 270px 1fr 310px; gap: 10px; min-height: 0; }
-.grid-col { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-
-/* 通用面板外壳 */
-.dv-panel {
-  background: rgba(4, 17, 39, 0.75);
-  border: 1px solid rgba(0, 240, 255, 0.18);
-  border-radius: 4px;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1;
-  box-shadow: inset 0 0 20px rgba(0, 240, 255, 0.03);
-}
-
-.panel-header {
-  height: 32px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 10px;
-  background: linear-gradient(90deg, rgba(0, 240, 255, 0.15) 0%, rgba(0, 240, 255, 0.02) 100%);
-  border-bottom: 1px solid rgba(0, 240, 255, 0.15);
-  flex-shrink: 0;
-}
-
-.panel-title-text { font-size: 12px; font-weight: 700; color: #00f0ff; display: flex; align-items: center; gap: 6px; }
-.panel-title-text::before { content: ''; display: inline-block; width: 3px; height: 11px; background: #00f0ff; box-shadow: 0 0 6px #00f0ff; }
-
-.panel-tag { font-size: 9px; font-family: 'Roboto Mono', monospace; padding: 1px 5px; border-radius: 2px; background: rgba(0, 240, 255, 0.1); color: #7b94ad; border: 1px solid rgba(0, 240, 255, 0.2); }
-.panel-tag.tag-green { color: #00ff9d; border-color: rgba(0, 255, 157, 0.4); }
-.panel-tag.tag-cyan { color: #00f0ff; border-color: rgba(0, 240, 255, 0.4); }
-.panel-tag.tag-amber { color: #ffb700; border-color: rgba(255, 183, 0, 0.4); }
-.panel-tag.tag-red { color: #ff3d68; border-color: rgba(255, 61, 104, 0.4); }
-
-.panel-body { flex: 1; position: relative; padding: 8px; overflow: hidden; display: flex; flex-direction: column; }
-.chart-box { width: 100%; height: 100%; min-height: 100px; }
-
-/* 赛博折角 */
-.corner-mark { position: absolute; width: 8px; height: 8px; border: 2px solid transparent; pointer-events: none; }
-.corner-mark.top-l { top: -1px; left: -1px; border-top-color: #00f0ff; border-left-color: #00f0ff; }
-.corner-mark.top-r { top: -1px; right: -1px; border-top-color: #00f0ff; border-right-color: #00f0ff; }
-.corner-mark.btm-l { bottom: -1px; left: -1px; border-bottom-color: #00f0ff; border-left-color: #00f0ff; }
-.corner-mark.btm-r { bottom: -1px; right: -1px; border-bottom-color: #00f0ff; border-right-color: #00f0ff; }
-
-/* ════════════ ★ 重构核心：中间三区域主视窗 ★ ════════════ */
-.roadheader-trio-panel {
-  flex: 1.45;
-}
-
-.trio-header {
-  padding: 0 10px;
-}
-
-.trio-title-left {
-  display: flex;
-  align-items: center;
+  grid-template-rows: 64px auto 32px minmax(0, 1fr) 220px;
   gap: 10px;
+  padding: 12px 16px 14px;
+  color: var(--txt);
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 12px;
+  background:
+    radial-gradient(1200px 480px at 50% -8%, rgba(42, 160, 255, 0.10), transparent 62%),
+    radial-gradient(760px 380px at 92% 108%, rgba(0, 229, 208, 0.06), transparent 60%),
+    var(--bg);
 }
+.font-mono { font-family: var(--mono); }
+.dim-text { color: var(--dim); font-size: 11px; }
+.lv-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 6px; vertical-align: middle; flex-shrink: 0;
+}
+.lv-dot.normal { background: var(--ok); box-shadow: 0 0 5px rgba(34, 197, 94, 0.7); }
+.lv-dot.warning { background: var(--warn); box-shadow: 0 0 5px rgba(245, 158, 11, 0.7); }
+.lv-dot.critical { background: var(--bad); box-shadow: 0 0 5px rgba(239, 68, 68, 0.7); }
 
-.machine-status-badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 3px;
-  display: flex;
+/* ═══════════ 1. 顶部标题栏 ═══════════ */
+.top-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 5px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+  position: relative;
 }
-.machine-status-badge.cutting { background: rgba(0, 255, 157, 0.15); color: #00ff9d; border: 1px solid rgba(0, 255, 157, 0.35); }
-.machine-status-badge.high_load { background: rgba(255, 183, 0, 0.15); color: #ffb700; border: 1px solid rgba(255, 183, 0, 0.35); }
-.machine-status-badge.warning { background: rgba(255, 61, 104, 0.15); color: #ff3d68; border: 1px solid rgba(255, 61, 104, 0.35); }
-
-.scenario-toggles {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.top-bar::after {
+  content: '';
+  position: absolute; left: 0; bottom: -1px;
+  width: 240px; height: 2px;
+  background: linear-gradient(90deg, var(--cyan), transparent);
 }
-
-.sc-label {
-  font-size: 10px;
-  color: #7b94ad;
+.tb-left { display: flex; align-items: center; gap: 18px; }
+.clock {
+  display: inline-flex; align-items: center;
+  font-size: 14px; color: var(--txt); letter-spacing: 0.5px;
 }
-
-.sc-btn {
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.2);
-  color: #8fa4bf;
-  border-radius: 3px;
-  font-size: 10px;
-  padding: 2px 6px;
-  cursor: pointer;
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--cyan); margin-right: 8px;
+  box-shadow: 0 0 8px var(--cyan);
+  animation: pulse 2s ease-in-out infinite;
+}
+.safe-days { color: var(--dim); font-size: 12px; }
+.safe-days b { color: var(--cyan); font-size: 16px; margin: 0 2px; text-shadow: 0 0 10px rgba(0, 229, 208, 0.45); }
+.tb-center { text-align: center; }
+.tb-center h1 {
+  margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 4px; color: #fff;
+  background: linear-gradient(180deg, #fff 30%, #9fd8ff 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 24px rgba(42, 160, 255, 0.35);
+}
+.tb-center p { margin: 2px 0 0; font-size: 9px; letter-spacing: 3px; color: var(--dim); }
+.tb-right { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.sys-pill {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px; font-size: 11px; color: var(--txt);
+  border: 1px solid var(--line); border-radius: 3px;
+  background: rgba(13, 27, 52, 0.5);
+}
+.sys-pill .dot { width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; }
+.sys-pill .dot.ok { background: var(--ok); box-shadow: 0 0 6px rgba(34, 197, 94, 0.8); animation: pulse 2.4s infinite; }
+.sys-pill .dot.bad { background: var(--bad); box-shadow: 0 0 6px rgba(239, 68, 68, 0.8); }
+.fs-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; cursor: pointer;
+  background: rgba(42, 160, 255, 0.08); color: var(--cyan);
+  border: 1px solid var(--line); border-radius: 4px;
   transition: all 0.2s;
 }
+.fs-btn:hover { background: rgba(0, 229, 208, 0.14); border-color: rgba(0, 229, 208, 0.5); }
 
-.sc-btn:hover, .sc-btn.active {
-  background: rgba(0, 240, 255, 0.25);
-  color: #00f0ff;
-  border-color: #00f0ff;
-  box-shadow: 0 0 6px rgba(0, 240, 255, 0.4);
+/* ═══════════ 2. KPI 指标带 ═══════════ */
+.kpi-band { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; }
+.kpi-card {
+  position: relative;
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+  padding: 8px 12px; min-height: 86px; box-sizing: border-box;
+  background: var(--panel);
+  border: 1px solid var(--line);
 }
+.kpi-card::before {
+  content: ''; position: absolute; top: 0; left: 0;
+  width: 34px; height: 2px;
+  background: linear-gradient(90deg, var(--cyan), transparent);
+}
+.kpi-card.danger {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(60, 17, 22, 0.45);
+  animation: dangerBreathe 2.2s ease-in-out infinite;
+}
+.kpi-card.danger::before { background: linear-gradient(90deg, var(--bad), transparent); }
+.k-label { font-size: 11px; color: var(--dim); letter-spacing: 1px; white-space: nowrap; }
+.k-num {
+  display: flex; align-items: baseline; gap: 4px;
+  font-size: 25px; font-weight: 600; color: var(--txt); line-height: 1.1;
+}
+.kpi-card.danger .k-num { color: var(--bad); text-shadow: 0 0 14px rgba(239, 68, 68, 0.5); }
+.k-num small { font-size: 11px; font-weight: 400; color: var(--dim); }
+.k-trend { font-size: 10px; color: var(--dim); }
+.k-trend.up { color: rgba(0, 229, 208, 0.75); }
+.kpi-card.danger .k-trend { color: rgba(239, 68, 68, 0.85); }
+.num-in { display: inline-block; animation: numIn 0.45s ease; }
 
-/* 三区域排布容器 */
-.trio-body {
-  flex: 1;
+/* ═══════════ 3. 告警滚动条 ═══════════ */
+.alert-marquee {
+  display: flex; align-items: center; overflow: hidden;
+  background: rgba(13, 27, 52, 0.45);
+  border: 1px solid rgba(239, 68, 68, 0.18);
+}
+.am-tag {
+  flex-shrink: 0; display: inline-flex; align-items: center; height: 100%;
+  padding: 0 14px; font-size: 11px; letter-spacing: 2px; color: var(--bad);
+  border-right: 1px solid rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.08);
+}
+.am-mask { flex: 1; overflow: hidden; white-space: nowrap; }
+.am-track {
+  display: inline-flex; align-items: center;
+  animation: marquee 32s linear infinite;
+}
+.am-item {
+  display: inline-flex; align-items: center;
+  padding-right: 56px; font-size: 12px; color: var(--txt);
+}
+.am-item b { color: var(--dim); font-weight: 400; margin-right: 8px; font-size: 11px; }
+
+/* ═══════════ 4. 主内容区 ═══════════ */
+.main-area {
   display: grid;
-  grid-template-columns: 210px 1fr 220px;
-  gap: 8px;
-  padding: 8px;
+  grid-template-columns: 22fr 52fr 26fr;
+  gap: 10px;
   min-height: 0;
 }
+.col { display: grid; gap: 10px; min-height: 0; min-width: 0; }
+.col-l, .col-r { grid-template-rows: 1fr 1fr 1fr; }
+.col-c { grid-template-rows: 1fr auto; }
 
-.trio-sub-col {
-  background: rgba(2, 13, 31, 0.7);
-  border: 1px solid rgba(0, 240, 255, 0.12);
-  border-radius: 4px;
-  display: flex;
-  flex-direction: column;
-  padding: 6px;
-  min-height: 0;
-}
-
-.sub-col-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: #00f0ff;
-  border-bottom: 1px solid rgba(0, 240, 255, 0.12);
-  padding-bottom: 4px;
-  margin-bottom: 6px;
-}
-
-.sub-col-title small {
-  font-size: 9px;
-  font-weight: 400;
-  color: #7b94ad;
-}
-
-/* 左边环境传感器卡片 */
-.env-cards-grid, .device-cards-grid {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  overflow-y: auto;
-}
-
-.env-item, .dev-item {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 3px;
-  padding: 4px 6px;
-}
-
-.env-item.warn, .dev-item.warn {
-  border-color: rgba(255, 183, 0, 0.35);
-  background: rgba(255, 183, 0, 0.04);
-}
-
-.dev-item.alert {
-  border-color: rgba(255, 61, 104, 0.4);
-  background: rgba(255, 61, 104, 0.06);
-}
-
-.env-item-header, .dev-item-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 10px;
-  color: #8fa4bf;
-}
-
-.env-status, .dev-tag {
-  font-size: 9px;
-}
-.dev-tag.tag-green { color: #00ff9d; }
-.dev-tag.tag-amber { color: #ffb700; }
-.dev-tag.tag-red { color: #ff3d68; }
-
-.env-val-row, .dev-val-row {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  margin-top: 1px;
-}
-
-.env-val, .dev-val {
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.env-unit, .dev-unit {
-  font-size: 10px;
-  color: #7b94ad;
-}
-
-.dev-limit {
-  font-size: 9px;
-  color: #657b94;
-  margin-left: auto;
-}
-
-.env-bar, .dev-bar {
-  height: 2px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 1px;
-  margin-top: 3px;
-  overflow: hidden;
-}
-.env-bar-fill, .dev-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #00f0ff, #00ff9d);
-}
-
-/* 中间掘进机图像展示视窗 */
-.sub-machine {
-  background: radial-gradient(circle at center, rgba(0, 240, 255, 0.09) 0%, rgba(2, 11, 26, 0.9) 80%);
-  border: 1px solid rgba(0, 240, 255, 0.2);
-}
-
-.machine-display-frame {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+/* 面板骨架：四角 sci-fi 角标 */
+.panel {
   position: relative;
+  display: flex; flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  min-height: 0; min-width: 0;
+}
+.panel::before, .panel::after,
+.cnr { position: absolute; width: 10px; height: 10px; pointer-events: none; opacity: 0.85; }
+.panel::before {
+  content: ''; top: -1px; left: -1px;
+  border-top: 1px solid var(--cyan); border-left: 1px solid var(--cyan);
+}
+.panel::after {
+  content: ''; bottom: -1px; right: -1px;
+  border-bottom: 1px solid var(--cyan); border-right: 1px solid var(--cyan);
+}
+.cnr.tr { top: -1px; right: -1px; border-top: 1px solid var(--cyan); border-right: 1px solid var(--cyan); }
+.cnr.bl { bottom: -1px; left: -1px; border-bottom: 1px solid var(--cyan); border-left: 1px solid var(--cyan); }
+
+.p-head {
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; padding: 0 10px; flex-shrink: 0;
+  border-bottom: 1px solid rgba(42, 160, 255, 0.14);
+}
+.p-head b { font-size: 13px; font-weight: 600; letter-spacing: 1px; color: var(--txt); }
+.p-head em {
+  font-style: normal; font-size: 9px; letter-spacing: 2px;
+  color: var(--dim); text-transform: uppercase; opacity: 0.8;
+}
+.p-extra { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.p-live {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--cyan); box-shadow: 0 0 6px var(--cyan);
+  animation: pulse 2s ease-in-out infinite;
+}
+.tag-run {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 10px; font-size: 11px; color: var(--ok);
+  border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 3px;
+  background: rgba(34, 197, 94, 0.08);
+}
+.tag-run i {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--ok);
+  box-shadow: 0 0 6px var(--ok); animation: pulse 1.6s infinite;
+}
+.tag-ok {
+  padding: 2px 10px; font-size: 11px; color: var(--ok);
+  border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 3px;
+  background: rgba(34, 197, 94, 0.08);
+}
+.p-body { flex: 1; min-height: 0; padding: 8px 10px; box-sizing: border-box; position: relative; }
+
+/* ── 左栏① 环境监测分段条 ── */
+.env-body { display: flex; flex-direction: column; justify-content: space-around; }
+.env-row { display: flex; align-items: center; gap: 10px; }
+.e-name { width: 62px; flex-shrink: 0; font-size: 12px; color: var(--dim); }
+.e-segs { flex: 1; display: flex; gap: 3px; }
+.e-segs i {
+  flex: 1; height: 9px;
+  background: rgba(42, 160, 255, 0.10);
+  border: 1px solid rgba(42, 160, 255, 0.08);
+  transition: background 0.4s;
+}
+.e-segs i.on {
+  background: rgba(0, 229, 208, 0.55);
+  border-color: rgba(0, 229, 208, 0.3);
+  box-shadow: inset 0 0 3px rgba(0, 229, 208, 0.4);
+}
+.e-segs i.on.warn {
+  background: rgba(245, 158, 11, 0.65);
+  border-color: rgba(245, 158, 11, 0.4);
+  animation: blinkWarn 1s ease-in-out infinite;
+}
+.e-val { width: 82px; flex-shrink: 0; text-align: right; font-size: 13px; color: var(--txt); }
+.e-val.warn { color: var(--warn); animation: blinkWarn 1s ease-in-out infinite; }
+.e-val small { font-size: 10px; color: var(--dim); margin-left: 2px; }
+
+/* ── 左栏② 生产进度 ── */
+.prog-body { display: grid; grid-template-columns: 46% 1fr; align-items: center; gap: 6px; }
+.prog-gauge { width: 100%; height: 100%; min-height: 110px; }
+.prog-nums { display: flex; flex-direction: column; gap: 10px; }
+.pn-item span { display: block; font-size: 11px; color: var(--dim); margin-bottom: 2px; }
+.pn-item strong { font-size: 19px; color: var(--txt); font-weight: 600; }
+.pn-item strong small { font-size: 10px; color: var(--dim); margin-left: 3px; font-weight: 400; }
+.glow-num { text-shadow: 0 0 12px rgba(0, 229, 208, 0.45); }
+
+/* ── 图表容器 ── */
+.fill-chart { width: 100%; height: 100%; }
+
+/* ── 中栏① 巷道态势图 ── */
+.tunnel-panel { min-height: 0; }
+.tunnel-wrap { position: relative; flex: 1; min-height: 0; padding: 4px 8px 0; }
+.tunnel-wrap svg { width: 100%; height: 100%; display: block; }
+.machine { filter: drop-shadow(0 0 6px rgba(0, 229, 208, 0.25)); }
+.svg-name {
+  fill: var(--cyan); font-size: 12px; letter-spacing: 3px; font-weight: 600;
+  font-family: var(--mono);
+}
+.svg-footage { fill: var(--txt); font-size: 11px; }
+.duct {
+  fill: none; stroke: rgba(42, 160, 255, 0.4); stroke-width: 2.5;
+  stroke-dasharray: 14 7; animation: flow 1.6s linear infinite;
+}
+.flow {
+  fill: none; stroke: rgba(42, 160, 255, 0.35); stroke-width: 1.5;
+  stroke-dasharray: 10 8; animation: flow 1.2s linear infinite;
+}
+.spark-g line { animation: spark 0.8s ease-in-out infinite alternate; }
+.spark-g line:nth-child(2) { animation-delay: 0.25s; }
+.spark-g line:nth-child(3) { animation-delay: 0.5s; }
+.sp { cursor: pointer; }
+.sp-ring {
+  fill: none; stroke: var(--ok); stroke-width: 1.5;
+  transform-box: fill-box; transform-origin: center;
+  animation: ping 2.2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.sp-core { fill: var(--ok); filter: drop-shadow(0 0 4px rgba(34, 197, 94, 0.8)); }
+.sp-label { fill: var(--dim); font-size: 10px; text-anchor: middle; }
+.sp.warn .sp-ring { stroke: var(--warn); animation-duration: 1.1s; }
+.sp.warn .sp-core {
+  fill: var(--warn);
+  filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.9));
+  animation: blinkWarn 0.9s ease-in-out infinite;
+}
+.sp.warn .sp-label { fill: var(--warn); }
+.tunnel-tip {
+  position: absolute; z-index: 10; pointer-events: none;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  background: rgba(8, 20, 40, 0.94);
+  border: 1px solid rgba(0, 229, 208, 0.4);
+  font-size: 12px; white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+.tunnel-tip b { color: var(--txt); font-weight: 600; }
+.tunnel-tip span { color: var(--cyan); }
+.tunnel-tip i { font-style: normal; font-size: 10px; padding: 1px 6px; border-radius: 2px; }
+.tunnel-tip i.n { color: var(--ok); background: rgba(34, 197, 94, 0.12); }
+.tunnel-tip i.w { color: var(--warn); background: rgba(245, 158, 11, 0.12); }
+
+/* ── 中栏② 核心指标块 ── */
+.core-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.core-item {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 12px; min-height: 84px; box-sizing: border-box;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.core-item .c-name { font-size: 11px; color: var(--dim); letter-spacing: 1px; }
+.core-item .c-val {
+  font-size: 24px; font-weight: 600; color: var(--txt); line-height: 1.15;
+}
+.core-item .c-val small { font-size: 10px; color: var(--dim); margin-left: 3px; font-weight: 400; }
+.core-item .c-val.glow { text-shadow: 0 0 12px rgba(0, 229, 208, 0.4); }
+.core-item .c-th { font-size: 10px; color: var(--dim); }
+.core-item.over { border-color: rgba(245, 158, 11, 0.55); background: rgba(66, 44, 8, 0.35); }
+.core-item.over .c-val { color: var(--warn); text-shadow: 0 0 12px rgba(245, 158, 11, 0.5); }
+.core-item.over .c-th { color: var(--warn); animation: blinkWarn 1.1s ease-in-out infinite; }
+
+/* ── 右栏① PHM ── */
+.phm-body { display: grid; grid-template-columns: 42% 1fr; gap: 8px; }
+.phm-gauge { width: 100%; height: 100%; min-height: 108px; }
+.phm-info { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pi-row span { display: block; font-size: 11px; color: var(--dim); margin-bottom: 1px; }
+.pi-row strong { font-size: 20px; color: var(--txt); font-weight: 600; }
+.pi-row strong small { font-size: 10px; color: var(--dim); margin-left: 3px; font-weight: 400; }
+.phm-mini { width: 100%; height: 46px; margin-top: 2px; }
+.pi-tip {
+  margin: auto 0 0; padding: 5px 8px; font-size: 11px; line-height: 1.5; color: var(--dim);
+  border-left: 2px solid rgba(0, 229, 208, 0.5);
+  background: rgba(0, 229, 208, 0.05);
 }
 
-.machine-head-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 6px;
-  border-bottom: 1px solid rgba(0, 240, 255, 0.15);
+/* ── 右栏② 遥测流 ── */
+.tl-wrap { display: flex; flex-direction: column; padding: 6px 8px 4px; overflow: hidden; }
+.tl-head {
+  display: grid; grid-template-columns: 58px 1.1fr 1fr 1fr;
+  gap: 6px; padding: 0 4px 4px; flex-shrink: 0;
+  font-size: 10px; color: var(--dim); letter-spacing: 1px;
+  border-bottom: 1px solid rgba(42, 160, 255, 0.14);
+}
+.tl-body { position: relative; flex: 1; overflow: hidden; }
+.tl-row {
+  display: grid; grid-template-columns: 58px 1.1fr 1fr 1fr;
+  gap: 6px; align-items: center;
+  height: 21px; padding: 0 4px;
+  font-size: 11px; color: var(--txt);
+  border-bottom: 1px dashed rgba(42, 160, 255, 0.07);
+  white-space: nowrap; overflow: hidden;
+}
+.tl-row .t { color: var(--dim); font-size: 10px; }
+.tl-row .d, .tl-row .s { overflow: hidden; text-overflow: ellipsis; color: var(--txt); }
+.tl-row .d { color: var(--dim); }
+.tl-row .v { display: inline-flex; align-items: center; justify-content: flex-end; overflow: hidden; }
+.tl-row .v.warning { color: var(--warn); }
+.tl-enter-active { transition: all 0.35s ease; }
+.tl-enter-from { opacity: 0; transform: translateY(-8px); }
+.tl-leave-active { position: absolute; opacity: 0; width: 100%; }
+.tl-move { transition: transform 0.3s ease; }
+
+/* ── 右栏③ 联动中心 ── */
+.lk-body { padding: 6px 10px; overflow: hidden; }
+.lk-list { display: flex; flex-direction: column; gap: 2px; height: 100%; }
+.lk-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 6px 0; border-bottom: 1px dashed rgba(42, 160, 255, 0.09);
+}
+.lk-time { flex-shrink: 0; font-size: 10px; color: var(--dim); padding-top: 2px; }
+.lk-main { flex: 1; min-width: 0; }
+.lk-main b { display: block; font-size: 12px; color: var(--txt); font-weight: 600; }
+.lk-main p { margin: 2px 0 0; font-size: 11px; color: var(--dim); line-height: 1.4; }
+.lk-dot {
+  flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%;
+  margin-top: 5px; background: var(--ok);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
 }
 
-.machine-type-tag {
-  font-size: 11px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: 0.5px;
-}
+/* ── 5. 底部趋势带 ── */
+.trend-band { min-height: 0; }
+.trend-chart { flex: 1; min-height: 0; padding: 2px 6px 4px; }
 
-.machine-attitude-box {
-  display: flex;
-  gap: 8px;
-  font-size: 10px;
-  color: #8fa4bf;
+/* ═══════════ 动画 ═══════════ */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
-.machine-attitude-box em {
-  color: #00f0ff;
-  font-style: normal;
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
-
-/* 掘进机图片区 */
-.machine-img-wrapper {
-  flex: 1;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 140px;
+@keyframes ping {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  75%, 100% { transform: scale(2.4); opacity: 0; }
 }
-
-.cyber-glow-bg {
-  position: absolute;
-  width: 180px;
-  height: 180px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(0, 240, 255, 0.2) 0%, transparent 70%);
-  filter: blur(12px);
+@keyframes blinkWarn {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
-
-.machine-img {
-  max-width: 90%;
-  max-height: 155px;
-  object-fit: contain;
-  filter: drop-shadow(0 0 15px rgba(0, 240, 255, 0.45));
-  z-index: 2;
-  transition: transform 0.3s;
+@keyframes dangerBreathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0), inset 0 0 16px rgba(239, 68, 68, 0.07); }
+  50% { box-shadow: 0 0 22px 2px rgba(239, 68, 68, 0.28), inset 0 0 22px rgba(239, 68, 68, 0.14); }
 }
-
-.machine-img:hover {
-  transform: scale(1.03);
+@keyframes numIn {
+  from { opacity: 0.2; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
-/* 锚点精准定位 */
-.hotspot {
-  position: absolute;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 4px;
+@keyframes flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -36; }
 }
-.hotspot.pt-cutter { left: 4%; top: 48%; }
-.hotspot.pt-pump { right: 28%; top: 16%; }
-.hotspot.pt-track { right: 26%; bottom: 8%; }
-
-.hotspot-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #00f0ff;
-  box-shadow: 0 0 8px #00f0ff;
-  animation: pulse-dot 1.5s infinite;
+@keyframes spark {
+  from { opacity: 0.25; }
+  to { opacity: 1; }
 }
-
-.hotspot-tip {
-  font-size: 9px;
-  color: #d8e8f8;
-  background: rgba(3, 16, 38, 0.85);
-  border: 1px solid rgba(0, 240, 255, 0.4);
-  padding: 1px 4px;
-  border-radius: 2px;
-  white-space: nowrap;
-}
-
-/* 底部参数带 */
-.machine-foot-bar {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  background: rgba(0, 240, 255, 0.05);
-  border: 1px solid rgba(0, 240, 255, 0.15);
-  border-radius: 3px;
-  padding: 4px;
-  text-align: center;
-}
-
-.foot-param span {
-  display: block;
-  font-size: 9px;
-  color: #7b94ad;
-}
-
-.foot-param strong {
-  font-size: 13px;
-}
-.foot-param small {
-  font-size: 9px;
-  font-weight: normal;
-  color: #7b94ad;
-}
-
-.trend-panel {
-  flex: 0.85;
-}
-
-/* ════════════ 右侧：AI 动态预测性维护 (PHM) ════════════ */
-.phm-panel {
-  flex: 1.35;
-}
-
-.phm-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 6px;
-}
-
-.ai-hero-card {
-  background: rgba(2, 15, 36, 0.85);
-  border: 1px solid rgba(0, 240, 255, 0.2);
-  border-radius: 4px;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  transition: all 0.3s;
-}
-
-.ai-hero-card.critical {
-  border-color: rgba(255, 61, 104, 0.5);
-  background: rgba(255, 61, 104, 0.05);
-}
-
-.ai-hero-card.attention {
-  border-color: rgba(255, 183, 0, 0.4);
-}
-
-.ai-head-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.ai-title-block strong {
-  display: block;
-  font-size: 11px;
-  color: #fff;
-}
-
-.ai-title-block small {
-  font-size: 9px;
-  color: #00f0ff;
-}
-
-.ai-badge-box {
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 2px;
-  font-weight: 700;
-  font-family: 'Roboto Mono', monospace;
-}
-.ai-badge-box.healthy { background: rgba(0, 255, 157, 0.2); color: #00ff9d; }
-.ai-badge-box.attention { background: rgba(255, 183, 0, 0.2); color: #ffb700; }
-.ai-badge-box.critical { background: rgba(255, 61, 104, 0.2); color: #ff3d68; }
-
-.ai-score-metric {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  background: rgba(0, 240, 255, 0.04);
-  border-radius: 3px;
-  padding: 4px 8px;
-}
-
-.metric-block .m-lbl {
-  font-size: 9px;
-  color: #7b94ad;
-}
-
-.m-val-row {
-  display: flex;
-  align-items: baseline;
-  gap: 2px;
-}
-
-.score-huge { font-size: 20px; font-weight: 800; }
-.rul-huge { font-size: 18px; font-weight: 800; }
-.score-unit { font-size: 10px; color: #7b94ad; }
-
-.ai-advice-box {
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px dashed rgba(0, 240, 255, 0.25);
-  border-radius: 3px;
-  padding: 4px 6px;
-  font-size: 10px;
-  color: #d0e2f5;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  line-height: 1.3;
-}
-.ai-advice-box .el-icon {
-  color: #ffb700;
-  flex-shrink: 0;
-}
-
-/* 机组健康对比 */
-.phm-fleet-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.phm-mini-item {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 3px;
-  padding: 3px 6px;
-}
-
-.p-mini-head {
-  display: flex;
-  justify-content: space-between;
-  font-size: 10px;
-  color: #8fa4bf;
-}
-.p-mini-head .p-rul { color: #ffb700; }
-
-.p-mini-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-}
-
-.p-bar-track {
-  flex: 1;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.p-bar-val {
-  height: 100%;
-  background: linear-gradient(90deg, #2a72ff, #00ff9d);
-}
-.p-score {
-  font-size: 10px;
-  color: #00f0ff;
-  width: 28px;
-  text-align: right;
-}
-
-/* 遥测流与告警 */
-.telemetry-table-header {
-  display: grid;
-  grid-template-columns: 55px 75px 1fr 60px;
-  font-size: 10px;
-  color: #00f0ff;
-  padding: 3px 6px;
-  background: rgba(0, 240, 255, 0.08);
-  border-bottom: 1px solid rgba(0, 240, 255, 0.15);
-}
-
-.telemetry-scroll-wrapper {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.telemetry-row-item {
-  display: grid;
-  grid-template-columns: 55px 75px 1fr 60px;
-  align-items: center;
-  padding: 3px 6px;
-  font-size: 10px;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
-}
-.telemetry-row-item.highlight { background: rgba(0, 240, 255, 0.25); }
-
-.alerts-body {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  overflow-y: auto;
-}
-
-.alert-strip {
-  display: flex;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 3px;
-  padding: 4px 6px;
-}
-.alert-strip.critical { border-left: 3px solid #ff3d68; }
-.alert-strip.warning { border-left: 3px solid #ffb700; }
-.alert-strip.info { border-left: 3px solid #00f0ff; }
-
-.alert-dev-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 10px;
-}
-.alert-msg-text { font-size: 10px; color: #8fa4bf; margin-top: 1px; }
-
-/* 辅助字体与颜色 */
-.font-mono { font-family: 'Roboto Mono', monospace; }
-.text-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.txt-blue { color: #2a72ff; }
-.txt-green { color: #00ff9d; }
-.txt-cyan { color: #00f0ff; }
-.txt-purple { color: #a855f7; }
-.txt-amber { color: #ffb700; }
-.txt-teal { color: #14b8a6; }
-.txt-red { color: #ff3d68; }
-.txt-orange { color: #ff9900; }
-
-::-webkit-scrollbar { width: 3px; height: 3px; }
-::-webkit-scrollbar-thumb { background: rgba(0, 240, 255, 0.25); border-radius: 2px; }
-::-webkit-scrollbar-track { background: transparent; }
 </style>
