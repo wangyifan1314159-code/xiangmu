@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Link, CircleCheckFilled, CircleCloseFilled, Delete } from '@element-plus/icons-vue'
-import { api } from '../../api'
+import { api, isInFallback } from '../../api'
 import { realApi } from '../../api/realApi'
 import { useAuthStore } from '../../stores/auth'
 
@@ -22,6 +22,7 @@ const authStore = useAuthStore()
 const connections = ref<TcpConnection[]>([])
 const status = ref<{ enabled: boolean; onlineDevices: number; onlineConnections?: number }>({ enabled: false, onlineDevices: 0 })
 const loading = ref(false)
+const demoMode = ref(false) // 后端不可达被降级时提示演示数据, 不再静默显示假连接
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 async function fetchConnections() {
@@ -36,6 +37,7 @@ async function fetchConnections() {
   } catch {
     connections.value = []
   } finally {
+    demoMode.value = isInFallback()
     loading.value = false
   }
 }
@@ -102,6 +104,8 @@ onUnmounted(() => { stopPolling() })
       <h2>连接实例</h2>
       <p>查看设备 TCP 长连接实例（JSON 行协议，端口 1884）</p>
     </div>
+
+    <el-alert v-if="demoMode" type="warning" :closable="false" show-icon title="后端不可达，当前为演示模式：连接数据不可用" class="demo-alert" />
 
     <!-- 状态卡片 -->
     <el-row :gutter="20" class="stat-row">
@@ -222,6 +226,9 @@ onUnmounted(() => { stopPolling() })
 }
 .stat-row {
   margin-bottom: 20px;
+}
+.demo-alert {
+  margin-bottom: 16px;
 }
 .stat-inner {
   display: flex;

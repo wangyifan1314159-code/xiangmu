@@ -11,6 +11,9 @@
         <p>INDUSTRIAL IOT BIG DATA &amp; REAL-TIME LAKEHOUSE COMMAND CENTER</p>
       </div>
       <div class="tb-right">
+        <span class="src-badge" :class="sourceLive ? 'live' : 'demo'" :title="sourceLive ? 'WebSocket 实时数据' : '后端不可达或未登录，当前为演示数据'">
+          <i></i>{{ sourceLive ? '实时数据' : '离线·演示数据' }}
+        </span>
         <span v-for="n in sysNodes" :key="n.name" class="sys-pill">
           <i class="dot" :class="n.ok ? 'ok' : 'bad'"></i>{{ n.name }}
         </span>
@@ -300,6 +303,7 @@ import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted,
 import { useDeviceStore } from '../../stores/device'
 import { useWebSocket, type WsDeviceData } from '../../stores/websocket'
 import { realApi } from '../../api/realApi'
+import { isInFallback } from '../../api'
 import { FullScreen } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
@@ -370,6 +374,8 @@ function updateClock() {
 const deviceStore = useDeviceStore()
 const ws = useWebSocket()
 let wsUnsub: (() => void) | null = null
+// [已接入] 数据源徽标: WS 已连且未 mock 降级 → 实时; 否则离线演示(定时器内刷新)
+const sourceLive = ref(false)
 
 // ─────────────────────────────────────────────────────────────
 // 顶部右侧系统节点状态
@@ -1047,6 +1053,7 @@ function startLoops() {
   // [已接入] WebSocket 全量设备数据 → 遥测流 + 大屏目标分发（真实数据优先，mock 兜底）
   wsUnsub = ws.onAllDeviceData(handleWsData)
   dataTimer = setInterval(() => {
+    sourceLive.value = ws.connected && !isInFallback() // [已接入] 数据源徽标: WS 已连且未降级
     tickKpis(); tickEnv(); tickMachine(); tickPoints(); tickPhm()
     pushTrendPoint(machine.cutterTemp, machine.hydraulicPress, machine.advanceSpeed)
     updateCharts()
@@ -1238,6 +1245,16 @@ onUnmounted(() => {
 }
 .tb-center p { margin: 2px 0 0; font-size: 9px; letter-spacing: 3px; color: var(--dim); }
 .tb-right { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.src-badge {
+  display: inline-flex; align-items: center; margin-right: 8px;
+  padding: 3px 10px; font-size: 11px; border-radius: 3px;
+  border: 1px solid var(--line); background: rgba(12, 42, 84, 0.5);
+}
+.src-badge i { width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+.src-badge.live { color: #4ade80; }
+.src-badge.live i { background: #22c55e; box-shadow: 0 0 5px rgba(34, 197, 94, 0.9); animation: pulse 2.4s infinite; }
+.src-badge.demo { color: #fbbf24; border-color: rgba(251, 191, 36, 0.5); }
+.src-badge.demo i { background: #f59e0b; box-shadow: 0 0 5px rgba(245, 158, 11, 0.8); animation: pulse 1.6s infinite; }
 .sys-pill {
   display: inline-flex; align-items: center;
   padding: 3px 10px; font-size: 11px; color: var(--txt);

@@ -514,25 +514,13 @@ export const mockApi = {
   },
 
   // ========== TCP 连接实例 ==========
+  // TCP 连接状态绝不伪造: 后端不可达时返回空/禁用, 由页面展示"演示数据"提示而非假连接
   async getTcpStatus() {
-    return { enabled: true, onlineDevices: 3, onlineConnections: 3 }
+    return { enabled: false, onlineDevices: 0, onlineConnections: 0 }
   },
 
   async getTcpConnections() {
-    await delay(300)
-    const userId = getCurrentUserId()
-    const devices = userId ? getStorage<Device[]>(devicesKey(userId), []) : []
-    return devices.slice(0, 3).map((d, i) => ({
-      gatewayId: null,
-      deviceIds: [d.id],
-      deviceCount: 1,
-      connectionMode: 'DEVICE',
-      deviceId: d.id,
-      channelId: `tcp-${(1000 + i).toString(16)}`,
-      remoteAddress: `192.168.1.${100 + i}:5${200 + i}`,
-      connectedAt: Date.now() - (i + 1) * 60000,
-      onlineSeconds: (i + 1) * 60
-    }))
+    return []
   },
 
   async disconnectTcpConnection(deviceId: string) {

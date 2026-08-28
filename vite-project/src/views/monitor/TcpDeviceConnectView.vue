@@ -152,7 +152,7 @@ onUnmounted(() => { stopPolling() })
       <el-table :data="binarySessions" v-loading="loading" empty-text="暂无掘进机二进制连接" stripe>
         <el-table-column prop="deviceName" label="绑定设备" min-width="150" />
         <el-table-column label="目标" min-width="160"><template #default="{ row }"><code>{{ row.host }}:{{ row.port }}</code></template></el-table-column>
-        <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="row.status === 'CONNECTED' ? 'success' : 'info'">{{ row.status === 'CONNECTED' ? '已连接' : '重连中' }}</el-tag></template></el-table-column>
+        <el-table-column label="状态" width="130"><template #default="{ row }"><el-tag :type="row.status === 'CONNECTED' ? 'success' : row.status === 'NO_DATA' ? 'warning' : 'info'">{{ row.status === 'CONNECTED' ? '已连接' : row.status === 'NO_DATA' ? '已连接·无数据' : '重连中' }}</el-tag></template></el-table-column>
         <el-table-column label="最近收帧" min-width="170"><template #default="{ row }">{{ formatTime(row.lastFrameAt) }}</template></el-table-column>
         <el-table-column label="无效帧" width="100"><template #default="{ row }">{{ row.invalidFrameCount || 0 }}</template></el-table-column>
         <el-table-column v-if="authStore.isAdmin" label="操作" width="90"><template #default="{ row }"><el-button link type="danger" :icon="Delete" @click="disconnectBinary(row.id)">断开</el-button></template></el-table-column>

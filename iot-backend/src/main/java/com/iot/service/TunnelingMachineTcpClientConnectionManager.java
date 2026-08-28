@@ -38,6 +38,8 @@ import java.util.concurrent.atomic.AtomicLong;
 @Slf4j
 public class TunnelingMachineTcpClientConnectionManager implements AutoCloseable {
     private static final long RECONNECT_DELAY_MILLIS = 1_000;
+    /** 连接活跃但超过该时长未收到任何有效帧时判定为假连接（如代理/防火墙代答 TCP 握手），快照报 NO_DATA */
+    private static final long STALE_FRAME_MILLIS = 30_000;
     private final EventLoopGroup group = new NioEventLoopGroup();
     private final int connectTimeoutMillis;
     private final boolean allowPrivateTargets;
@@ -286,6 +288,11 @@ public class TunnelingMachineTcpClientConnectionManager implements AutoCloseable
         private InetSocketAddress target() { return target; } private String deviceId() { return deviceId; } private String deviceName() { return deviceName; } private Long ownerId() { return ownerId; }
         private void clear(Channel expected) { if (channel == expected) channel = null; }
         private void stop() { stopped.set(true); if (channel != null) channel.close(); }
-        private Map<String, Object> snapshot(String id) { Map<String, Object> value = new LinkedHashMap<>(); value.put("id", id); value.put("host", host); value.put("port", port); value.put("deviceId", deviceId); value.put("deviceName", deviceName); value.put("status", channel != null && channel.isActive() ? "CONNECTED" : "RECONNECTING"); value.put("remoteAddress", channel == null || channel.remoteAddress() == null ? "" : channel.remoteAddress().toString()); value.put("lastFrameAt", lastFrameAt); value.put("validFrameCount", validFrames.get()); value.put("invalidFrameCount", invalidFrames.get()); value.put("unknownFrameCount", unknownFrames.get()); return value; }
+        private Map<String, Object> snapshot(String id) { Map<String, Object> value = new LinkedHashMap<>(); value.put("id", id); value.put("host", host); value.put("port", port); value.put("deviceId", deviceId); value.put("deviceName", deviceName); value.put("status", resolveStatus()); value.put("remoteAddress", channel == null || channel.remoteAddress() == null ? "" : channel.remoteAddress().toString()); value.put("lastFrameAt", lastFrameAt); value.put("validFrameCount", validFrames.get()); value.put("invalidFrameCount", invalidFrames.get()); value.put("unknownFrameCount", unknownFrames.get()); return value; }
+        // 活性判定: 通道活跃且 30s 内有有效帧才算 CONNECTED; 通道活跃但无帧(代理代答握手的假连接)报 NO_DATA
+        private String resolveStatus() {
+            if (channel == null || !channel.isActive()) return "RECONNECTING";
+            return lastFrameAt > 0 && System.currentTimeMillis() - lastFrameAt <= STALE_FRAME_MILLIS ? "CONNECTED" : "NO_DATA";
+        }
     }
 }
