@@ -101,14 +101,35 @@
           </div>
         </div>
 
-        <!-- ③ 设备类型分布 -->
+        <!-- ③ 实时数据管道（Kafka/Flink 处理流量的真实实测分布） -->
         <div class="panel">
           <i class="cnr tr"></i><i class="cnr bl"></i>
           <div class="p-head">
-            <span class="p-live"></span><b>设备类型分布</b><em>DEVICE DISTRIBUTION</em>
-            <span class="p-extra dim-text font-mono">共 {{ deviceTypeTotal }} 台</span>
+            <span class="p-live"></span><b>实时数据管道</b><em>INGEST PIPELINE · KAFKA/FLINK</em>
+            <span class="p-extra dim-text font-mono">{{ pipelineTotal }} 条</span>
           </div>
-          <div class="p-body"><div ref="deviceTypeChartRef" class="fill-chart"></div></div>
+          <div class="p-body pipe-body">
+            <div class="pipe-chart-wrap">
+              <div ref="pipeChartRef" class="fill-chart"></div>
+              <div v-if="pipelineTotal === 0" class="stream-empty">等待数据流入…</div>
+            </div>
+            <div class="pipe-stats">
+              <div class="ps-item">
+                <span>累计消息</span>
+                <strong class="font-mono">{{ pipelineTotal.toLocaleString('en-US') }}</strong>
+              </div>
+              <div class="ps-item">
+                <span>消息速率</span>
+                <strong class="font-mono">{{ pipelineRate.toFixed(1) }}<small>条/s</small></strong>
+              </div>
+              <div class="ps-item">
+                <span>管道状态</span>
+                <strong class="font-mono" :class="sourceLive ? 'ps-live' : 'ps-off'">
+                  <i></i>{{ sourceLive ? '实时' : '离线' }}
+                </strong>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -598,6 +619,8 @@ function handleWsData(data: WsDeviceData) {
   lastRealDataAt.value = Date.now()
   const value = typeof data.value === 'number' ? data.value : 0
   const meta = sensorIndex.get(data.sensorId)
+  // 实时管道统计（真实消息计数）
+  notePipelineMessage(meta?.type || '')
   // 遥测流：显示设备名/传感器名（sensorIndex 可查时用可读名称）
   const devName = deviceStore.devices.find(d => d.id === data.deviceId)?.name || data.deviceId
   pushTelemetry({
@@ -624,43 +647,46 @@ function handleWsData(data: WsDeviceData) {
 const linkageEvents = ref<LinkageEvent[]>([])
 
 // ─────────────────────────────────────────────────────────────
-// 左栏 ③ 设备类型分布（真实聚合，横向条形图）
-// [已接入] devices 加载后按 device.type 聚合（type 为空归「其他」，降序取前 6；无设备则留空）
+// 左栏 ③ 实时数据管道（Kafka/Flink 流量实测：按传感器类型统计 WS 真实消息）
+// 数据源 = handleWsData 实际收到的推送，无任何模拟成分
 // ─────────────────────────────────────────────────────────────
-const deviceTypeData = ref<{ name: string; value: number }[]>([])
-const deviceTypeTotal = computed(() => deviceTypeData.value.reduce((s, d) => s + d.value, 0))
+const PIPE_TYPE_LABELS: Record<string, string> = {
+  temperature: '温度', humidity: '湿度', methane: '甲烷', wind_speed: '风速',
+  pm25: '粉尘', co2: 'CO2', tilt_x: '倾角X', tilt_y: '倾角Y', tilt_z: '倾角Z',
+  total_thrust_pressure: '推进油压', rotation_pressure: '旋转油压', support_pressure: '支撑油压'
+}
+const pipelineCounts = ref<{ name: string; value: number }[]>([])
+const pipelineTotal = ref(0)
+const recentMsgTimes: number[] = []
+const pipelineRate = ref(0)
 
-// [已接入] 设备类型真实聚合
-function aggregateDeviceTypes() {
-  if (deviceStore.devices.length === 0) {
-    deviceTypeData.value = []
-    deviceTypeChart?.setOption(buildDeviceTypeOption())
-    return
-  }
-  const counts = new Map<string, number>()
-  for (const d of deviceStore.devices) {
-    const key = (d.type || '').trim() || '其他'
-    counts.set(key, (counts.get(key) || 0) + 1)
-  }
-  deviceTypeData.value = [...counts.entries()]
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 6)
-  // 若图表已初始化（如后续 devices 刷新），补一次刷新；init 前更新则由 initAllCharts 读取
-  deviceTypeChart?.setOption(buildDeviceTypeOption())
+function notePipelineMessage(type: string) {
+  pipelineTotal.value++
+  const label = PIPE_TYPE_LABELS[type] || type || '未知'
+  const counts = [...pipelineCounts.value]
+  const hit = counts.find(c => c.name === label)
+  if (hit) hit.value++
+  else counts.push({ name: label, value: 1 })
+  pipelineCounts.value = counts
+  // 速率：60s 滑动窗口
+  const now = Date.now()
+  recentMsgTimes.push(now)
+  while (recentMsgTimes.length > 0 && now - recentMsgTimes[0] > 60_000) recentMsgTimes.shift()
+  pipelineRate.value = recentMsgTimes.length / 60
+  updatePipeChart()
 }
 
 // ─────────────────────────────────────────────────────────────
 // ECharts 实例与初始化
 // ─────────────────────────────────────────────────────────────
 const gaugeChartRef = ref<HTMLDivElement | null>(null)
-const deviceTypeChartRef = ref<HTMLDivElement | null>(null)
+const pipeChartRef = ref<HTMLDivElement | null>(null)
 const phmGaugeRef = ref<HTMLDivElement | null>(null)
 const phmTrendRef = ref<HTMLDivElement | null>(null)
 const trendChartRef = ref<HTMLDivElement | null>(null)
 
 let gaugeChart: echarts.ECharts | null = null
-let deviceTypeChart: echarts.ECharts | null = null
+let pipeChart: echarts.ECharts | null = null
 let phmGaugeChart: echarts.ECharts | null = null
 let phmTrendChart: echarts.ECharts | null = null
 let trendChart: echarts.ECharts | null = null
@@ -670,6 +696,7 @@ const CYAN = '#00E5FF'
 const BLUE = '#2E9BFF'
 const TXT = '#D6E9FF'
 const DIM = '#6E8DB8'
+const PIPE_COLORS = ['#00E5FF', '#2E9BFF', '#22D3EE', '#38BDF8', '#7DD3FC', '#A5F3FC', '#67E8F9']
 
 function makeGaugeOption(value: number, label: string): echarts.EChartsCoreOption {
   return {
@@ -697,37 +724,47 @@ function makeGaugeOption(value: number, label: string): echarts.EChartsCoreOptio
   }
 }
 
-// 设备类型分布 option 构造（数据来自 deviceTypeData.value，聚合更新后可重复调用）
-function buildDeviceTypeOption(): echarts.EChartsCoreOption {
+// 实时数据管道 option 构造（数据来自 pipelineCounts，每条真实消息到达后刷新）
+function buildPipeOption(): echarts.EChartsCoreOption {
   return {
     tooltip: {
-      trigger: 'axis', axisPointer: { type: 'shadow' },
+      trigger: 'item',
       backgroundColor: 'rgba(6,22,48,0.92)', borderColor: 'rgba(46,155,255,0.45)',
-      textStyle: { color: TXT, fontSize: 12 }
+      textStyle: { color: TXT, fontSize: 12 },
+      formatter: '{b}<br/>{c} 条（{d}%）'
     },
-    grid: { top: 6, right: 34, bottom: 2, left: 6, containLabel: true },
-    xAxis: { type: 'value', axisLabel: { show: false }, splitLine: { show: false }, axisLine: { show: false } },
-    yAxis: {
-      type: 'category', inverse: true,
-      data: deviceTypeData.value.map(d => d.name),
-      axisLine: { show: false }, axisTick: { show: false },
-      axisLabel: { color: DIM, fontSize: 11 }
+    legend: {
+      orient: 'vertical', right: 2, top: 'middle', itemWidth: 9, itemHeight: 9, itemGap: 6,
+      textStyle: { color: DIM, fontSize: 10 },
+      formatter: (name: string) => {
+        const total = pipelineCounts.value.reduce((s, d) => s + d.value, 0) || 1
+        const v = pipelineCounts.value.find(d => d.name === name)?.value ?? 0
+        return `${name} ${Math.round((v / total) * 100)}%`
+      }
     },
     series: [{
-      type: 'bar', barWidth: 9,
-      data: deviceTypeData.value.map(d => d.value),
-      itemStyle: {
-        borderRadius: [0, 5, 5, 0],
-        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-          { offset: 0, color: 'rgba(0,229,255,0.20)' },
-          { offset: 1, color: CYAN }
-        ])
-      },
-      showBackground: true,
-      backgroundStyle: { color: 'rgba(46,155,255,0.08)', borderRadius: [0, 5, 5, 0] },
-      label: { show: true, position: 'right', color: TXT, fontSize: 11, fontFamily: MONO }
-    }]
+      type: 'pie', radius: ['58%', '82%'], center: ['32%', '50%'],
+      data: pipelineCounts.value.map((d, i) => ({
+        ...d, itemStyle: { color: PIPE_COLORS[i % PIPE_COLORS.length] }
+      })),
+      label: { show: false }, labelLine: { show: false },
+      emphasis: { scaleSize: 4 },
+      itemStyle: { borderColor: '#0a1e3c', borderWidth: 2 }
+    }],
+    graphic: pipelineTotal.value > 0
+      ? [{
+          type: 'text', left: '32%', top: '50%', silent: true,
+          style: { text: String(pipelineTotal.value), textAlign: 'center', textVerticalAlign: 'middle', fill: TXT, font: `600 15px ${MONO}`, y: -8 }
+        }, {
+          type: 'text', left: '32%', top: '50%', silent: true,
+          style: { text: '累计', textAlign: 'center', textVerticalAlign: 'middle', fill: DIM, font: `9px ${MONO}`, y: 10 }
+        }]
+      : []
   }
+}
+
+function updatePipeChart() {
+  pipeChart?.setOption(buildPipeOption())
 }
 
 function initAllCharts() {
@@ -737,10 +774,10 @@ function initAllCharts() {
     gaugeChart.setOption(makeGaugeOption(progressPct.value, '今日计划完成率'))
   }
 
-  // 左栏③ 设备类型分布：单色渐变横向条形图
-  if (deviceTypeChartRef.value) {
-    deviceTypeChart = echarts.init(deviceTypeChartRef.value)
-    deviceTypeChart.setOption(buildDeviceTypeOption())
+  // 左栏③ 实时数据管道 donut（初始为空，WS 消息到达后增量更新）
+  if (pipeChartRef.value) {
+    pipeChart = echarts.init(pipeChartRef.value)
+    pipeChart.setOption(buildPipeOption())
   }
 
   // 右栏① PHM 健康 gauge + 近 8 日迷你趋势
@@ -887,7 +924,7 @@ function updateCharts() {
 
 function handleResize() {
   gaugeChart?.resize()
-  deviceTypeChart?.resize()
+  pipeChart?.resize()
   phmGaugeChart?.resize()
   phmTrendChart?.resize()
   trendChart?.resize()
@@ -904,9 +941,12 @@ function startLoops() {
   ws.connect()
   // [已接入] WebSocket 全量设备数据 → 遥测流 + 环境项 + 态势图点位 + 温度趋势
   wsUnsub = ws.onAllDeviceData(handleWsData)
-  // 仅刷新数据源徽标状态（实时 = WS 已连且 20s 内收到过真实数据）
+  // 刷新数据源徽标与消息速率窗口（实时 = WS 已连且 20s 内收到过真实数据）
   dataTimer = setInterval(() => {
     sourceLive.value = ws.connected && Date.now() - lastRealDataAt.value < 20_000
+    const now = Date.now()
+    while (recentMsgTimes.length > 0 && now - recentMsgTimes[0] > 60_000) recentMsgTimes.shift()
+    pipelineRate.value = recentMsgTimes.length / 60
   }, 3000)
 }
 function stopLoops() {
@@ -925,7 +965,6 @@ onMounted(async () => {
     kpiValues.devices = deviceStore.totalCount
     kpiValues.online = deviceStore.onlineCount
     seedRealInitialValues()   // [已接入] sensorId 索引 + 命中映射的传感器当前值（首屏即真实）
-    aggregateDeviceTypes()    // [已接入] 设备类型分布真实聚合（无设备则留空）
   } catch { /* 后端不可达，保持 0 */ }
   warmTrendWithRealData()     // [已接入] 底部趋势真实历史预热（失败留空）
   fetchAlertMarquee()
@@ -951,12 +990,12 @@ onUnmounted(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   window.removeEventListener('resize', handleResize)
   gaugeChart?.dispose()
-  deviceTypeChart?.dispose()
+  pipeChart?.dispose()
   phmGaugeChart?.dispose()
   phmTrendChart?.dispose()
   trendChart?.dispose()
   gaugeChart = null
-  deviceTypeChart = null
+  pipeChart = null
   phmGaugeChart = null
   phmTrendChart = null
   trendChart = null
@@ -1317,6 +1356,28 @@ onUnmounted(() => {
 
 /* ── 图表容器 ── */
 .fill-chart { width: 100%; height: 100%; }
+.pipe-body { display: flex; gap: 4px; }
+.pipe-chart-wrap { position: relative; flex: 1.35; min-width: 0; }
+.pipe-stats { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; min-width: 0; }
+.ps-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 8px; border: 1px solid var(--line); border-radius: 3px;
+  background: rgba(12, 42, 84, 0.45);
+}
+.ps-item span { font-size: 10px; color: var(--dim); }
+.ps-item strong { font-size: 13px; color: var(--txt); }
+.ps-item strong small { margin-left: 3px; font-size: 9px; color: var(--dim); font-weight: 400; }
+.ps-live { color: #4ade80 !important; }
+.ps-live i {
+  display: inline-block; width: 6px; height: 6px; margin-right: 5px;
+  border-radius: 50%; background: #22c55e;
+  box-shadow: 0 0 5px rgba(34, 197, 94, 0.9); animation: pulse 2.4s infinite;
+}
+.ps-off { color: #fbbf24 !important; }
+.ps-off i {
+  display: inline-block; width: 6px; height: 6px; margin-right: 5px;
+  border-radius: 50%; background: #f59e0b;
+}
 
 /* ── 中栏① 巷道态势图 ── */
 .tunnel-panel { min-height: 0; }
