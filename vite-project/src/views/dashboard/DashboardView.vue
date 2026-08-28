@@ -1,5 +1,5 @@
 <template>
-  <div class="dv-wrap">
+  <div ref="dashboardRef" class="dv-wrap">
     <!-- ════════════ 1. 顶部标题栏 (64px) ════════════ -->
     <header class="top-bar">
       <div class="tb-left">
@@ -14,7 +14,7 @@
         <span v-for="n in sysNodes" :key="n.name" class="sys-pill">
           <i class="dot" :class="n.ok ? 'ok' : 'bad'"></i>{{ n.name }}
         </span>
-        <button class="fs-btn" title="全屏切换" @click="toggleFullScreen">
+        <button class="fs-btn" :class="{ on: isFullscreen }" title="全屏切换" @click="toggleFullScreen">
           <el-icon><FullScreen /></el-icon>
         </button>
       </div>
@@ -122,39 +122,39 @@
             <svg viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet">
               <defs>
                 <linearGradient id="rockGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stop-color="rgba(42,160,255,0.12)" />
-                  <stop offset="1" stop-color="rgba(11,17,32,0.55)" />
+                  <stop offset="0" stop-color="rgba(46,155,255,0.12)" />
+                  <stop offset="1" stop-color="rgba(8,26,52,0.6)" />
                 </linearGradient>
                 <linearGradient id="fadeRight" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0" stop-color="rgba(11,17,32,0)" />
-                  <stop offset="1" stop-color="#0b1120" />
+                  <stop offset="0" stop-color="rgba(10,30,60,0)" />
+                  <stop offset="1" stop-color="#0a1e3c" />
                 </linearGradient>
               </defs>
 
               <!-- 巷道主体：直墙半圆拱，右端延伸出画面 -->
               <path d="M 130 336 L 130 250 Q 130 160 215 160 L 915 160 Q 1005 160 1005 250 L 1005 336 Z"
-                    fill="url(#rockGrad)" stroke="rgba(0,229,208,0.45)" stroke-width="2" />
+                    fill="url(#rockGrad)" stroke="rgba(0,229,255,0.55)" stroke-width="2" />
               <!-- 顶部锚杆支护示意 -->
-              <g stroke="rgba(42,160,255,0.45)" stroke-width="1.5">
+              <g stroke="rgba(46,155,255,0.45)" stroke-width="1.5">
                 <line x1="300" y1="160" x2="300" y2="148" /><line x1="440" y1="160" x2="440" y2="148" />
                 <line x1="580" y1="160" x2="580" y2="148" /><line x1="720" y1="160" x2="720" y2="148" />
                 <line x1="860" y1="160" x2="860" y2="148" />
               </g>
               <!-- 地面与轨道 -->
-              <line x1="130" y1="336" x2="1005" y2="336" stroke="rgba(42,160,255,0.35)" stroke-width="1.5" />
-              <line x1="160" y1="322" x2="1000" y2="322" stroke="rgba(122,147,181,0.30)" stroke-dasharray="10 7" />
+              <line x1="130" y1="336" x2="1005" y2="336" stroke="rgba(46,155,255,0.4)" stroke-width="1.5" />
+              <line x1="160" y1="322" x2="1000" y2="322" stroke="rgba(110,141,184,0.35)" stroke-dasharray="10 7" />
               <!-- 压入式风筒（沿顶） -->
               <path class="duct" d="M 1000 176 L 225 176" />
               <!-- 风流方向（新风流向掘进面） -->
               <g class="flow-g">
                 <path class="flow" d="M 960 288 L 420 288" />
                 <path class="flow" d="M 960 258 L 520 258" />
-                <polygon points="420,288 434,283 434,293" fill="rgba(42,160,255,0.55)" />
-                <polygon points="520,258 534,253 534,263" fill="rgba(42,160,255,0.55)" />
+                <polygon points="420,288 434,283 434,293" fill="rgba(46,155,255,0.6)" />
+                <polygon points="520,258 534,253 534,263" fill="rgba(46,155,255,0.6)" />
               </g>
 
               <!-- 掘进面（左端断面）+ 截割火花 -->
-              <path d="M 130 336 L 130 250 Q 130 162 212 161" fill="none" stroke="rgba(0,229,208,0.85)" stroke-width="2.5" />
+              <path d="M 130 336 L 130 250 Q 130 162 212 161" fill="none" stroke="rgba(0,229,255,0.9)" stroke-width="2.5" />
               <g class="spark-g" stroke="rgba(245,158,11,0.85)" stroke-width="1.5">
                 <line x1="128" y1="222" x2="106" y2="212" />
                 <line x1="126" y1="235" x2="100" y2="235" />
@@ -163,14 +163,14 @@
 
               <!-- EBZ-260 掘进机剪影 -->
               <g class="machine">
-                <rect x="165" y="302" width="175" height="26" rx="9" fill="rgba(42,160,255,0.14)" stroke="rgba(0,229,208,0.6)" stroke-width="1.5" />
-                <line x1="180" y1="315" x2="325" y2="315" stroke="rgba(0,229,208,0.35)" stroke-dasharray="7 6" />
-                <path d="M 185 302 L 185 258 L 295 258 L 318 276 L 318 302 Z" fill="rgba(42,160,255,0.18)" stroke="rgba(0,229,208,0.7)" stroke-width="1.5" />
-                <rect x="230" y="242" width="34" height="16" rx="2" fill="rgba(42,160,255,0.14)" stroke="rgba(0,229,208,0.55)" />
-                <path d="M 293 268 L 148 226 L 148 244 L 293 286 Z" fill="rgba(0,229,208,0.22)" stroke="rgba(0,229,208,0.75)" stroke-width="1.5" />
-                <circle cx="145" cy="235" r="11" fill="rgba(0,229,208,0.25)" stroke="#00E5D0" stroke-width="1.5" />
-                <line x1="138" y1="235" x2="152" y2="235" stroke="rgba(0,229,208,0.7)" />
-                <line x1="145" y1="228" x2="145" y2="242" stroke="rgba(0,229,208,0.7)" />
+                <rect x="165" y="302" width="175" height="26" rx="9" fill="#16406e" stroke="rgba(0,229,255,0.7)" stroke-width="1.5" />
+                <line x1="180" y1="315" x2="325" y2="315" stroke="rgba(0,229,255,0.35)" stroke-dasharray="7 6" />
+                <path d="M 185 302 L 185 258 L 295 258 L 318 276 L 318 302 Z" fill="rgba(22,64,110,0.92)" stroke="rgba(0,229,255,0.8)" stroke-width="1.5" />
+                <rect x="230" y="242" width="34" height="16" rx="2" fill="rgba(22,64,110,0.85)" stroke="rgba(0,229,255,0.6)" />
+                <path d="M 293 268 L 148 226 L 148 244 L 293 286 Z" fill="rgba(0,229,255,0.2)" stroke="rgba(0,229,255,0.8)" stroke-width="1.5" />
+                <circle cx="145" cy="235" r="11" fill="rgba(0,229,255,0.25)" stroke="#00E5FF" stroke-width="1.5" />
+                <line x1="138" y1="235" x2="152" y2="235" stroke="rgba(0,229,255,0.75)" />
+                <line x1="145" y1="228" x2="145" y2="242" stroke="rgba(0,229,255,0.75)" />
               </g>
               <text class="svg-name" x="252" y="230">EBZ-260</text>
               <text class="svg-footage font-mono" x="252" y="248">掘进进尺 {{ machine.totalFootage.toFixed(1) }} m</text>
@@ -330,18 +330,20 @@ interface MarqueeAlert { time: string; level: 'normal' | 'warning' | 'critical';
 // ─────────────────────────────────────────────────────────────
 // 全屏控制
 // ─────────────────────────────────────────────────────────────
+// 大屏根元素：全屏目标（而非 document.documentElement，避免 MainLayout 侧边栏/顶栏残留）
+const dashboardRef = ref<HTMLDivElement | null>(null)
 const isFullscreen = ref(false)
 function toggleFullScreen() {
   if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen().catch(() => {})
-    isFullscreen.value = true
+    dashboardRef.value?.requestFullscreen().catch(() => {})
   } else if (document.exitFullscreen) {
     document.exitFullscreen().catch(() => {})
-    isFullscreen.value = false
   }
 }
 function onFullscreenChange() {
   isFullscreen.value = !!document.fullscreenElement
+  // 进入/退出全屏后容器尺寸变化，重算图表尺寸
+  nextTick(handleResize)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -688,10 +690,10 @@ let phmTrendChart: echarts.ECharts | null = null
 let trendChart: echarts.ECharts | null = null
 
 const MONO = 'Roboto Mono, JetBrains Mono, Consolas, monospace'
-const CYAN = '#00E5D0'
-const BLUE = '#2AA0FF'
-const TXT = '#D9E8FF'
-const DIM = '#7A93B5'
+const CYAN = '#00E5FF'
+const BLUE = '#2E9BFF'
+const TXT = '#D6E9FF'
+const DIM = '#6E8DB8'
 
 function makeGaugeOption(value: number, label: string): echarts.EChartsCoreOption {
   return {
@@ -700,9 +702,9 @@ function makeGaugeOption(value: number, label: string): echarts.EChartsCoreOptio
       radius: '96%', center: ['50%', '58%'],
       progress: {
         show: true, width: 9, roundCap: true,
-        itemStyle: { color: CYAN, shadowColor: 'rgba(0,229,208,0.5)', shadowBlur: 8 }
+        itemStyle: { color: CYAN, shadowColor: 'rgba(0,229,255,0.5)', shadowBlur: 8 }
       },
-      axisLine: { roundCap: true, lineStyle: { width: 9, color: [[1, 'rgba(42,160,255,0.15)']] } },
+      axisLine: { roundCap: true, lineStyle: { width: 9, color: [[1, 'rgba(46,155,255,0.15)']] } },
       pointer: { show: false }, axisTick: { show: false },
       splitLine: { show: false }, axisLabel: { show: false },
       title: { show: false },
@@ -732,7 +734,7 @@ function initAllCharts() {
     deviceTypeChart.setOption({
       tooltip: {
         trigger: 'axis', axisPointer: { type: 'shadow' },
-        backgroundColor: 'rgba(8,20,40,0.92)', borderColor: 'rgba(42,160,255,0.4)',
+        backgroundColor: 'rgba(6,22,48,0.92)', borderColor: 'rgba(46,155,255,0.45)',
         textStyle: { color: TXT, fontSize: 12 }
       },
       grid: { top: 6, right: 34, bottom: 2, left: 6, containLabel: true },
@@ -749,12 +751,12 @@ function initAllCharts() {
         itemStyle: {
           borderRadius: [0, 5, 5, 0],
           color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-            { offset: 0, color: 'rgba(0,229,208,0.20)' },
+            { offset: 0, color: 'rgba(0,229,255,0.20)' },
             { offset: 1, color: CYAN }
           ])
         },
         showBackground: true,
-        backgroundStyle: { color: 'rgba(42,160,255,0.07)', borderRadius: [0, 5, 5, 0] },
+        backgroundStyle: { color: 'rgba(46,155,255,0.08)', borderRadius: [0, 5, 5, 0] },
         label: { show: true, position: 'right', color: TXT, fontSize: 11, fontFamily: MONO }
       }]
     })
@@ -776,8 +778,8 @@ function initAllCharts() {
         lineStyle: { width: 1.5, color: BLUE },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(42,160,255,0.35)' },
-            { offset: 1, color: 'rgba(42,160,255,0)' }
+            { offset: 0, color: 'rgba(46,155,255,0.35)' },
+            { offset: 1, color: 'rgba(46,155,255,0)' }
           ])
         }
       }]
@@ -835,7 +837,7 @@ function buildTrendOption(): echarts.EChartsCoreOption {
   return {
     tooltip: {
       trigger: 'axis',
-      backgroundColor: 'rgba(8,20,40,0.94)', borderColor: 'rgba(0,229,208,0.35)',
+      backgroundColor: 'rgba(6,22,48,0.94)', borderColor: 'rgba(0,229,255,0.4)',
       textStyle: { color: TXT, fontSize: 12 }
     },
     legend: {
@@ -846,7 +848,7 @@ function buildTrendOption(): echarts.EChartsCoreOption {
     grid: { top: 30, right: 58, bottom: 22, left: 46 },
     xAxis: {
       type: 'category', boundaryGap: false, data: trendLabels,
-      axisLine: { lineStyle: { color: 'rgba(42,160,255,0.25)' } },
+      axisLine: { lineStyle: { color: 'rgba(46,155,255,0.25)' } },
       axisTick: { show: false },
       axisLabel: {
         color: DIM, fontSize: 10, fontFamily: MONO,
@@ -860,7 +862,7 @@ function buildTrendOption(): echarts.EChartsCoreOption {
         type: 'value', name: '℃', min: 40, max: 90,
         nameTextStyle: { color: DIM, fontSize: 10, align: 'right' },
         axisLabel: { color: DIM, fontSize: 10, fontFamily: MONO },
-        splitLine: { lineStyle: { color: 'rgba(42,160,255,0.10)', type: 'dashed' } }
+        splitLine: { lineStyle: { color: 'rgba(46,155,255,0.10)', type: 'dashed' } }
       },
       {
         type: 'value', name: 'MPa', min: 0, max: 40,
@@ -875,8 +877,8 @@ function buildTrendOption(): echarts.EChartsCoreOption {
         data: trendTemp, lineStyle: { width: 2, color: CYAN }, itemStyle: { color: CYAN },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(0,229,208,0.26)' },
-            { offset: 1, color: 'rgba(0,229,208,0)' }
+            { offset: 0, color: 'rgba(0,229,255,0.26)' },
+            { offset: 1, color: 'rgba(0,229,255,0)' }
           ])
         }
       },
@@ -886,8 +888,8 @@ function buildTrendOption(): echarts.EChartsCoreOption {
         lineStyle: { width: 2, color: BLUE }, itemStyle: { color: BLUE },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(42,160,255,0.18)' },
-            { offset: 1, color: 'rgba(42,160,255,0)' }
+            { offset: 0, color: 'rgba(46,155,255,0.18)' },
+            { offset: 1, color: 'rgba(46,155,255,0)' }
           ])
         }
       },
@@ -1001,15 +1003,15 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* ═══════════ 设计令牌 ═══════════ */
+/* ═══════════ 设计令牌（DataV 政企指挥风，组件作用域内覆盖） ═══════════ */
 .dv-wrap {
-  --bg: #0b1120;
-  --panel: rgba(13, 27, 52, 0.6);
-  --line: rgba(42, 160, 255, 0.22);
-  --cyan: #00e5d0;
-  --blue: #2aa0ff;
-  --txt: #d9e8ff;
-  --dim: #7a93b5;
+  --bg: #0a1e3c;
+  --panel: linear-gradient(180deg, rgba(12, 42, 84, 0.72), rgba(8, 26, 52, 0.55));
+  --line: rgba(0, 229, 255, 0.28);
+  --cyan: #00e5ff;
+  --blue: #2e9bff;
+  --txt: #d6e9ff;
+  --dim: #6e8db8;
   --ok: #22c55e;
   --warn: #f59e0b;
   --bad: #ef4444;
@@ -1027,9 +1029,24 @@ onUnmounted(() => {
   font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
   font-size: 12px;
   background:
-    radial-gradient(1200px 480px at 50% -8%, rgba(42, 160, 255, 0.10), transparent 62%),
-    radial-gradient(760px 380px at 92% 108%, rgba(0, 229, 208, 0.06), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(0, 229, 255, 0.03) 0 1px, transparent 1px 56px),
+    repeating-linear-gradient(90deg, rgba(0, 229, 255, 0.03) 0 1px, transparent 1px 56px),
+    radial-gradient(1100px 520px at 50% 24%, rgba(20, 60, 120, 0.25), transparent 68%),
+    radial-gradient(760px 380px at 92% 108%, rgba(0, 229, 255, 0.05), transparent 60%),
     var(--bg);
+}
+
+/* 全屏兜底：根元素进入 top layer 后铺满视口，防止白边/布局残留 */
+.dv-wrap:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  background-color: #0a1e3c;
+}
+.dv-wrap::backdrop {
+  background-color: #0a1e3c;
 }
 .font-mono { font-family: var(--mono); }
 .dim-text { color: var(--dim); font-size: 11px; }
@@ -1064,19 +1081,46 @@ onUnmounted(() => {
 .live-dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--cyan); margin-right: 8px;
-  box-shadow: 0 0 8px var(--cyan);
+  box-shadow: 0 0 6px var(--cyan), 0 0 14px rgba(0, 229, 255, 0.5);
   animation: pulse 2s ease-in-out infinite;
 }
 .safe-days { color: var(--dim); font-size: 12px; }
-.safe-days b { color: var(--cyan); font-size: 16px; margin: 0 2px; text-shadow: 0 0 10px rgba(0, 229, 208, 0.45); }
+.safe-days b { color: var(--cyan); font-size: 16px; margin: 0 2px; text-shadow: 0 0 10px rgba(0, 229, 255, 0.45); }
 .tb-center { text-align: center; }
 .tb-center h1 {
+  position: relative;
   margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 4px; color: #fff;
-  background: linear-gradient(180deg, #fff 30%, #9fd8ff 90%);
+  padding: 0 78px;
+  background: linear-gradient(180deg, #ffffff 25%, #9be8ff 95%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  text-shadow: 0 0 24px rgba(42, 160, 255, 0.35);
+  text-shadow: 0 0 22px rgba(0, 229, 255, 0.5);
+}
+/* 主标题两侧对称科技装饰：渐变斜线 + 端点小方块 */
+.tb-center h1::before,
+.tb-center h1::after {
+  content: '';
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 64px; height: 8px;
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.5));
+}
+.tb-center h1::before {
+  left: 0;
+  background-image:
+    linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.75)),
+    linear-gradient(180deg, rgba(0, 229, 255, 0.95), rgba(46, 155, 255, 0.55));
+  background-size: 50px 2px, 6px 8px;
+  background-position: right center, 0 center;
+}
+.tb-center h1::after {
+  right: 0;
+  background-image:
+    linear-gradient(270deg, transparent, rgba(0, 229, 255, 0.75)),
+    linear-gradient(180deg, rgba(0, 229, 255, 0.95), rgba(46, 155, 255, 0.55));
+  background-size: 50px 2px, 6px 8px;
+  background-position: left center, 100% center;
 }
 .tb-center p { margin: 2px 0 0; font-size: 9px; letter-spacing: 3px; color: var(--dim); }
 .tb-right { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
@@ -1084,19 +1128,31 @@ onUnmounted(() => {
   display: inline-flex; align-items: center;
   padding: 3px 10px; font-size: 11px; color: var(--txt);
   border: 1px solid var(--line); border-radius: 3px;
-  background: rgba(13, 27, 52, 0.5);
+  background: rgba(12, 42, 84, 0.5);
 }
-.sys-pill .dot { width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; }
-.sys-pill .dot.ok { background: var(--ok); box-shadow: 0 0 6px rgba(34, 197, 94, 0.8); animation: pulse 2.4s infinite; }
-.sys-pill .dot.bad { background: var(--bad); box-shadow: 0 0 6px rgba(239, 68, 68, 0.8); }
+.sys-pill .dot { width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+.sys-pill .dot.ok {
+  background: var(--ok);
+  box-shadow: 0 0 5px rgba(34, 197, 94, 0.9), 0 0 12px rgba(34, 197, 94, 0.45);
+  animation: pulse 2.4s infinite;
+}
+.sys-pill .dot.bad {
+  background: var(--bad);
+  box-shadow: 0 0 5px rgba(239, 68, 68, 0.9), 0 0 12px rgba(239, 68, 68, 0.45);
+}
 .fs-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; cursor: pointer;
-  background: rgba(42, 160, 255, 0.08); color: var(--cyan);
+  background: rgba(46, 155, 255, 0.1); color: var(--cyan);
   border: 1px solid var(--line); border-radius: 4px;
   transition: all 0.2s;
 }
-.fs-btn:hover { background: rgba(0, 229, 208, 0.14); border-color: rgba(0, 229, 208, 0.5); }
+.fs-btn:hover { background: rgba(0, 229, 255, 0.16); border-color: rgba(0, 229, 255, 0.55); }
+.fs-btn.on {
+  background: rgba(0, 229, 255, 0.18);
+  border-color: rgba(0, 229, 255, 0.6);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.35);
+}
 
 /* ═══════════ 2. KPI 指标带 ═══════════ */
 .kpi-band { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; }
@@ -1118,6 +1174,13 @@ onUnmounted(() => {
   animation: dangerBreathe 2.2s ease-in-out infinite;
 }
 .kpi-card.danger::before { background: linear-gradient(90deg, var(--bad), transparent); }
+.kpi-card.danger::after {
+  content: '';
+  position: absolute; left: 0; right: 0; top: 0;
+  height: 2px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.75), transparent);
+  animation: scanDown 6s linear infinite;
+}
 .k-label { font-size: 11px; color: var(--dim); letter-spacing: 1px; white-space: nowrap; }
 .k-num {
   display: flex; align-items: baseline; gap: 4px;
@@ -1126,14 +1189,14 @@ onUnmounted(() => {
 .kpi-card.danger .k-num { color: var(--bad); text-shadow: 0 0 14px rgba(239, 68, 68, 0.5); }
 .k-num small { font-size: 11px; font-weight: 400; color: var(--dim); }
 .k-trend { font-size: 10px; color: var(--dim); }
-.k-trend.up { color: rgba(0, 229, 208, 0.75); }
+.k-trend.up { color: rgba(0, 229, 255, 0.75); }
 .kpi-card.danger .k-trend { color: rgba(239, 68, 68, 0.85); }
 .num-in { display: inline-block; animation: numIn 0.45s ease; }
 
 /* ═══════════ 3. 告警滚动条 ═══════════ */
 .alert-marquee {
   display: flex; align-items: center; overflow: hidden;
-  background: rgba(13, 27, 52, 0.45);
+  background: rgba(12, 42, 84, 0.45);
   border: 1px solid rgba(239, 68, 68, 0.18);
 }
 .am-tag {
@@ -1170,10 +1233,14 @@ onUnmounted(() => {
   display: flex; flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--line);
+  box-shadow: 0 0 18px rgba(0, 190, 255, 0.1), inset 0 0 30px rgba(0, 120, 255, 0.06);
   min-height: 0; min-width: 0;
 }
 .panel::before, .panel::after,
-.cnr { position: absolute; width: 10px; height: 10px; pointer-events: none; opacity: 0.85; }
+.cnr {
+  position: absolute; width: 10px; height: 10px; pointer-events: none; opacity: 0.9;
+  filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.55));
+}
 .panel::before {
   content: ''; top: -1px; left: -1px;
   border-top: 1px solid var(--cyan); border-left: 1px solid var(--cyan);
@@ -1186,11 +1253,30 @@ onUnmounted(() => {
 .cnr.bl { bottom: -1px; left: -1px; border-bottom: 1px solid var(--cyan); border-left: 1px solid var(--cyan); }
 
 .p-head {
+  position: relative;
   display: flex; align-items: center; gap: 8px;
-  height: 32px; padding: 0 10px; flex-shrink: 0;
-  border-bottom: 1px solid rgba(42, 160, 255, 0.14);
+  height: 32px; padding: 0 10px 0 18px; flex-shrink: 0;
 }
-.p-head b { font-size: 13px; font-weight: 600; letter-spacing: 1px; color: var(--txt); }
+/* DataV 斜切标题标签 */
+.p-head::before {
+  content: '';
+  position: absolute; left: 4px; top: 50%;
+  width: 7px; height: 15px;
+  transform: translateY(-50%) skewX(-18deg);
+  background: linear-gradient(180deg, #00e5ff, #2e9bff);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.55);
+}
+/* 标题栏底部青→透明渐变线 */
+.p-head::after {
+  content: '';
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(0, 229, 255, 0.75), transparent 88%);
+}
+.p-head b {
+  font-size: 13px; font-weight: 600; letter-spacing: 1px; color: var(--txt);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.45);
+}
 .p-head em {
   font-style: normal; font-size: 9px; letter-spacing: 2px;
   color: var(--dim); text-transform: uppercase; opacity: 0.8;
@@ -1225,14 +1311,14 @@ onUnmounted(() => {
 .e-segs { flex: 1; display: flex; gap: 3px; }
 .e-segs i {
   flex: 1; height: 9px;
-  background: rgba(42, 160, 255, 0.10);
-  border: 1px solid rgba(42, 160, 255, 0.08);
+  background: rgba(46, 155, 255, 0.1);
+  border: 1px solid rgba(46, 155, 255, 0.08);
   transition: background 0.4s;
 }
 .e-segs i.on {
-  background: rgba(0, 229, 208, 0.55);
-  border-color: rgba(0, 229, 208, 0.3);
-  box-shadow: inset 0 0 3px rgba(0, 229, 208, 0.4);
+  background: rgba(0, 229, 255, 0.55);
+  border-color: rgba(0, 229, 255, 0.3);
+  box-shadow: inset 0 0 3px rgba(0, 229, 255, 0.4);
 }
 .e-segs i.on.warn {
   background: rgba(245, 158, 11, 0.65);
@@ -1250,27 +1336,33 @@ onUnmounted(() => {
 .pn-item span { display: block; font-size: 11px; color: var(--dim); margin-bottom: 2px; }
 .pn-item strong { font-size: 19px; color: var(--txt); font-weight: 600; }
 .pn-item strong small { font-size: 10px; color: var(--dim); margin-left: 3px; font-weight: 400; }
-.glow-num { text-shadow: 0 0 12px rgba(0, 229, 208, 0.45); }
+.glow-num { text-shadow: 0 0 12px rgba(0, 229, 255, 0.5); }
 
 /* ── 图表容器 ── */
 .fill-chart { width: 100%; height: 100%; }
 
 /* ── 中栏① 巷道态势图 ── */
 .tunnel-panel { min-height: 0; }
+.tunnel-panel .scan {
+  position: absolute; left: 2px; right: 2px; top: 0; z-index: 2;
+  height: 2px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.5), transparent);
+  animation: scanDown 8s linear infinite;
+}
 .tunnel-wrap { position: relative; flex: 1; min-height: 0; padding: 4px 8px 0; }
 .tunnel-wrap svg { width: 100%; height: 100%; display: block; }
-.machine { filter: drop-shadow(0 0 6px rgba(0, 229, 208, 0.25)); }
+.machine { filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.3)); }
 .svg-name {
   fill: var(--cyan); font-size: 12px; letter-spacing: 3px; font-weight: 600;
   font-family: var(--mono);
 }
 .svg-footage { fill: var(--txt); font-size: 11px; }
 .duct {
-  fill: none; stroke: rgba(42, 160, 255, 0.4); stroke-width: 2.5;
+  fill: none; stroke: rgba(46, 155, 255, 0.45); stroke-width: 2.5;
   stroke-dasharray: 14 7; animation: flow 1.6s linear infinite;
 }
 .flow {
-  fill: none; stroke: rgba(42, 160, 255, 0.35); stroke-width: 1.5;
+  fill: none; stroke: rgba(46, 155, 255, 0.4); stroke-width: 1.5;
   stroke-dasharray: 10 8; animation: flow 1.2s linear infinite;
 }
 .spark-g line { animation: spark 0.8s ease-in-out infinite alternate; }
@@ -1278,11 +1370,11 @@ onUnmounted(() => {
 .spark-g line:nth-child(3) { animation-delay: 0.5s; }
 .sp { cursor: pointer; }
 .sp-ring {
-  fill: none; stroke: var(--ok); stroke-width: 1.5;
+  fill: none; stroke: var(--cyan); stroke-width: 1.5;
   transform-box: fill-box; transform-origin: center;
   animation: ping 2.2s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
-.sp-core { fill: var(--ok); filter: drop-shadow(0 0 4px rgba(34, 197, 94, 0.8)); }
+.sp-core { fill: var(--cyan); filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.8)); }
 .sp-label { fill: var(--dim); font-size: 10px; text-anchor: middle; }
 .sp.warn .sp-ring { stroke: var(--warn); animation-duration: 1.1s; }
 .sp.warn .sp-core {
@@ -1295,8 +1387,8 @@ onUnmounted(() => {
   position: absolute; z-index: 10; pointer-events: none;
   display: flex; align-items: center; gap: 8px;
   padding: 6px 10px;
-  background: rgba(8, 20, 40, 0.94);
-  border: 1px solid rgba(0, 229, 208, 0.4);
+  background: rgba(6, 22, 48, 0.94);
+  border: 1px solid rgba(0, 229, 255, 0.4);
   font-size: 12px; white-space: nowrap;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
@@ -1318,7 +1410,7 @@ onUnmounted(() => {
   font-size: 24px; font-weight: 600; color: var(--txt); line-height: 1.15;
 }
 .core-item .c-val small { font-size: 10px; color: var(--dim); margin-left: 3px; font-weight: 400; }
-.core-item .c-val.glow { text-shadow: 0 0 12px rgba(0, 229, 208, 0.4); }
+.core-item .c-val.glow { text-shadow: 0 0 12px rgba(0, 229, 255, 0.45); }
 .core-item .c-th { font-size: 10px; color: var(--dim); }
 .core-item.over { border-color: rgba(245, 158, 11, 0.55); background: rgba(66, 44, 8, 0.35); }
 .core-item.over .c-val { color: var(--warn); text-shadow: 0 0 12px rgba(245, 158, 11, 0.5); }
@@ -1334,8 +1426,8 @@ onUnmounted(() => {
 .phm-mini { width: 100%; height: 46px; margin-top: 2px; }
 .pi-tip {
   margin: auto 0 0; padding: 5px 8px; font-size: 11px; line-height: 1.5; color: var(--dim);
-  border-left: 2px solid rgba(0, 229, 208, 0.5);
-  background: rgba(0, 229, 208, 0.05);
+  border-left: 2px solid rgba(0, 229, 255, 0.5);
+  background: rgba(0, 229, 255, 0.06);
 }
 
 /* ── 右栏② 遥测流 ── */
@@ -1344,7 +1436,7 @@ onUnmounted(() => {
   display: grid; grid-template-columns: 58px 1.1fr 1fr 1fr;
   gap: 6px; padding: 0 4px 4px; flex-shrink: 0;
   font-size: 10px; color: var(--dim); letter-spacing: 1px;
-  border-bottom: 1px solid rgba(42, 160, 255, 0.14);
+  border-bottom: 1px solid rgba(46, 155, 255, 0.16);
 }
 .tl-body { position: relative; flex: 1; overflow: hidden; }
 .tl-row {
@@ -1352,7 +1444,7 @@ onUnmounted(() => {
   gap: 6px; align-items: center;
   height: 21px; padding: 0 4px;
   font-size: 11px; color: var(--txt);
-  border-bottom: 1px dashed rgba(42, 160, 255, 0.07);
+  border-bottom: 1px dashed rgba(46, 155, 255, 0.08);
   white-space: nowrap; overflow: hidden;
 }
 .tl-row .t { color: var(--dim); font-size: 10px; }
@@ -1370,7 +1462,7 @@ onUnmounted(() => {
 .lk-list { display: flex; flex-direction: column; gap: 2px; height: 100%; }
 .lk-row {
   display: flex; align-items: flex-start; gap: 10px;
-  padding: 6px 0; border-bottom: 1px dashed rgba(42, 160, 255, 0.09);
+  padding: 6px 0; border-bottom: 1px dashed rgba(46, 155, 255, 0.1);
 }
 .lk-time { flex-shrink: 0; font-size: 10px; color: var(--dim); padding-top: 2px; }
 .lk-main { flex: 1; min-width: 0; }
@@ -1405,11 +1497,18 @@ onUnmounted(() => {
 }
 @keyframes dangerBreathe {
   0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0), inset 0 0 16px rgba(239, 68, 68, 0.07); }
-  50% { box-shadow: 0 0 22px 2px rgba(239, 68, 68, 0.28), inset 0 0 22px rgba(239, 68, 68, 0.14); }
+  50% { box-shadow: 0 0 30px 4px rgba(239, 68, 68, 0.38), inset 0 0 26px rgba(239, 68, 68, 0.16); }
 }
 @keyframes numIn {
   from { opacity: 0.2; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+/* 顶部扫描线：仅用于巷道态势图面板与告警 KPI 卡 */
+@keyframes scanDown {
+  0% { top: 0; opacity: 0; }
+  8% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { top: calc(100% - 2px); opacity: 0; }
 }
 @keyframes flow {
   from { stroke-dashoffset: 0; }
