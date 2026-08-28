@@ -11,8 +11,8 @@
         <p>INDUSTRIAL IOT BIG DATA &amp; REAL-TIME LAKEHOUSE COMMAND CENTER</p>
       </div>
       <div class="tb-right">
-        <span class="src-badge" :class="sourceLive ? 'live' : 'demo'" :title="sourceLive ? 'WebSocket 实时数据' : '后端不可达或未登录，当前为演示数据'">
-          <i></i>{{ sourceLive ? '实时数据' : '离线·演示数据' }}
+        <span class="src-badge" :class="sourceLive ? 'live' : 'demo'" :title="sourceLive ? 'WebSocket 实时数据' : '未连接或无真实数据推送'">
+          <i></i>{{ sourceLive ? '实时数据' : '离线' }}
         </span>
         <span v-for="n in sysNodes" :key="n.name" class="sys-pill">
           <i class="dot" :class="n.ok ? 'ok' : 'bad'"></i>{{ n.name }}
@@ -259,6 +259,9 @@
                 </span>
               </div>
             </TransitionGroup>
+            <div v-if="telemetryStream.length === 0" class="stream-empty">
+              {{ sourceLive ? '等待设备遥测…' : '离线：连接后端并登录后显示真实遥测' }}
+            </div>
           </div>
         </div>
 
@@ -280,6 +283,7 @@
                 <i class="lk-dot"></i>
               </div>
             </TransitionGroup>
+            <div v-if="linkageEvents.length === 0" class="stream-empty">暂无联动执行记录</div>
           </div>
         </div>
       </div>
@@ -289,7 +293,7 @@
     <section class="panel trend-band">
       <i class="cnr tr"></i><i class="cnr bl"></i>
       <div class="p-head">
-        <span class="p-live"></span><b>关键参数趋势</b><em>KEY PARAMETERS TREND · 3s 采样</em>
+        <span class="p-live"></span><b>关键参数趋势</b><em>KEY PARAMETERS TREND · 真实遥测</em>
         <span class="p-extra dim-text font-mono">窗口 3 分钟</span>
       </div>
       <div ref="trendChartRef" class="trend-chart"></div>
@@ -303,7 +307,6 @@ import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted,
 import { useDeviceStore } from '../../stores/device'
 import { useWebSocket, type WsDeviceData } from '../../stores/websocket'
 import { realApi } from '../../api/realApi'
-import { isInFallback } from '../../api'
 import { FullScreen } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
@@ -354,8 +357,8 @@ function onFullscreenChange() {
 // 时钟与安全运行天数
 // ─────────────────────────────────────────────────────────────
 const currentTime = ref('')
-// [接入点] 安全运行天数：可替换为后端系统启动时间接口
-const START_TIME = Date.now() - (142 * 24 * 3600 + 8 * 3600 + 32 * 60) * 1000
+// [接入点] 安全运行天数：等待后端系统启动时间接口，接入前显示 0（不伪造）
+const START_TIME = Date.now()
 const safeDays = computed(() => Math.floor((Date.now() - START_TIME) / 86400000))
 let clockTimer: ReturnType<typeof setInterval> | undefined
 
@@ -374,17 +377,18 @@ function updateClock() {
 const deviceStore = useDeviceStore()
 const ws = useWebSocket()
 let wsUnsub: (() => void) | null = null
-// [已接入] 数据源徽标: WS 已连且未 mock 降级 → 实时; 否则离线演示(定时器内刷新)
+// [已接入] 数据源徽标: WS 已连且 20s 内收到过真实推送 → 实时; 否则离线
 const sourceLive = ref(false)
+const lastRealDataAt = ref(0)
 
 // ─────────────────────────────────────────────────────────────
 // 顶部右侧系统节点状态
-// [接入点] 可替换为 realApi.getFlinkJob / Kafka / Iceberg 健康接口
+// [接入点] 可替换为 realApi.getFlinkJob / Kafka / Iceberg 健康接口；接入前默认未知(灰点)
 // ─────────────────────────────────────────────────────────────
 const sysNodes = ref([
-  { name: 'Flink 1.18', ok: true },
-  { name: 'Kafka 32P', ok: true },
-  { name: 'Iceberg', ok: true }
+  { name: 'Flink 1.18', ok: false },
+  { name: 'Kafka 32P', ok: false },
+  { name: 'Iceberg', ok: false }
 ])
 
 // ─────────────────────────────────────────────────────────────
@@ -400,9 +404,10 @@ const kpiDefs: KpiDef[] = [
   { key: 'pending', label: '待响应报警', unit: '条', decimals: 0, danger: true, trend: '1', dir: 'up' },
   { key: 'todayAlerts', label: '今日告警数', unit: '条', decimals: 0, trend: '3', dir: 'up' }
 ]
+// 全部从 0 起步：devices/online/pending/todayAlerts 由真实接口回填，qps/kafkaRate/storage/passRate 等待后端统计接口
 const kpiValues = reactive<Record<string, number>>({
-  devices: 48, online: 45, qps: 85420, kafkaRate: 1.45,
-  storage: 4.82, passRate: 99.92, pending: 3, todayAlerts: 17
+  devices: 0, online: 0, qps: 0, kafkaRate: 0,
+  storage: 0, passRate: 0, pending: 0, todayAlerts: 0
 })
 const kpiList = computed(() =>
   kpiDefs.map(d => {
@@ -411,44 +416,28 @@ const kpiList = computed(() =>
     return { ...d, display }
   })
 )
-function tickKpis() {
-  kpiValues.qps = Math.max(82000, Math.min(89000, kpiValues.qps + (Math.random() - 0.5) * 2600))
-  kpiValues.kafkaRate = Math.max(1.3, Math.min(1.6, kpiValues.kafkaRate + (Math.random() - 0.5) * 0.08))
-  kpiValues.storage = +(kpiValues.storage + Math.random() * 0.004).toFixed(3)
-  kpiValues.passRate = Math.min(100, Math.max(99.8, kpiValues.passRate + (Math.random() - 0.5) * 0.04))
-  if (Math.random() < 0.25) kpiValues.pending = Math.max(1, Math.min(6, kpiValues.pending + (Math.random() < 0.5 ? -1 : 1)))
-  if (Math.random() < 0.12) kpiValues.todayAlerts += 1
-}
 
 // ─────────────────────────────────────────────────────────────
-// 告警滚动条（真实接入 + mock 兜底）
+// 告警滚动条（真实接入：getAlertRecords 回填，无数据则留空）
 // ─────────────────────────────────────────────────────────────
-const marqueeAlerts = ref<MarqueeAlert[]>([
-  { time: '16:08:12', level: 'critical', text: 'EBZ-260·截割电机温度 74.3℃ 接近阈值' },
-  { time: '16:09:40', level: 'warning', text: 'KJ90-环境站#03·工作面甲烷浓度上扬至 0.58%' },
-  { time: '16:10:05', level: 'normal', text: 'MD-280-排水泵#02·自动排空自愈保护联动完成' },
-  { time: '16:12:33', level: 'warning', text: 'GCG100-粉尘仪·掘进面粉尘浓度 21.4 mg/m³ 超限' },
-  { time: '16:15:47', level: 'normal', text: 'FBD-No7.5·局扇频率自适应调节已生效' }
-])
+const marqueeAlerts = ref<MarqueeAlert[]>([])
 const marqueeLoop = computed(() => [...marqueeAlerts.value, ...marqueeAlerts.value])
 
 async function fetchAlertMarquee() {
-  // [已接入] realApi.getAlertRecords：真实告警记录（失败时回落 mock）
+  // [已接入] realApi.getAlertRecords：真实告警记录（失败留空，不伪造）
   try {
     const page = await realApi.getAlertRecords({ status: 'TRIGGERED', page: 0, size: 8 })
     const content = page?.content || []
-    if (content.length > 0) {
-      kpiValues.pending = page.totalElements ?? content.length
-      marqueeAlerts.value = content.slice(0, 6).map((r: Record<string, unknown>) => {
-        const lv = String(r.level || 'WARNING').toUpperCase()
-        return {
-          time: r.triggeredAt ? new Date(String(r.triggeredAt)).toLocaleTimeString('zh-CN', { hour12: false }) : '刚刚',
-          level: (lv === 'CRITICAL' ? 'critical' : lv === 'WARNING' ? 'warning' : 'normal') as MarqueeAlert['level'],
-          text: `${String(r.deviceName || r.deviceId || '设备')}·${String(r.ruleName || r.title || '遥测阈值超限触发')}`
-        }
-      })
-    }
-  } catch { /* mock 兜底，忽略 */ }
+    kpiValues.pending = page.totalElements ?? content.length
+    marqueeAlerts.value = content.slice(0, 6).map((r: Record<string, unknown>) => {
+      const lv = String(r.level || 'WARNING').toUpperCase()
+      return {
+        time: r.triggeredAt ? new Date(String(r.triggeredAt)).toLocaleTimeString('zh-CN', { hour12: false }) : '刚刚',
+        level: (lv === 'CRITICAL' ? 'critical' : lv === 'WARNING' ? 'warning' : 'normal') as MarqueeAlert['level'],
+        text: `${String(r.deviceName || r.deviceId || '设备')}·${String(r.ruleName || r.title || '遥测阈值超限触发')}`
+      }
+    })
+  } catch { /* 后端不可达，留空 */ }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -462,21 +451,21 @@ const envDefs: EnvDef[] = [
   { key: 'wind', name: '巷道风速', unit: 'm/s', decimals: 1, displayMax: 6, threshold: null, base: 3.2, amp: 0.5 },
   { key: 'dust', name: '粉尘浓度', unit: 'mg/m³', decimals: 1, displayMax: 30, threshold: 20, base: 14.2, amp: 4 }
 ]
-// [已接入] 传感器类型 → 大屏目标映射（后端为通用 IoT 传感器，按最接近类型代理）
-// temperature/humidity 数值天然匹配；pm25/co2 为视觉代理映射，见 scale 注释
+// [已接入] 传感器类型 → 大屏目标映射
+// temperature/humidity/wind_speed 直连；methane 后端为 ppm → ×0.0001 转 %；pm25/co2 为视觉代理映射
 const SENSOR_TYPE_MAP: Record<string, { env?: string; point?: string; scale?: number }> = {
   temperature: { env: 'temp', point: 'temp' },
   humidity: { env: 'humidity', point: 'hum' },
+  methane: { env: 'ch4', point: 't0', scale: 0.0001 },  // TCP 0x0511 帧: ppm → %
+  wind_speed: { env: 'wind', point: 'wind' },            // TCP 0x0511 帧: m/s
   pm25: { env: 'dust', point: 'dust', scale: 0.5 },   // μg/m³ → mg/m³ 量级代理
   co2: { env: 'co', point: 'co', scale: 0.025 }        // ppm CO2 → CO 显示量级代理
 }
-// [已接入] 真实值豁免窗口：目标键 → 时间戳；期内 tickEnv/tickPoints 跳过该键
-// （mock 不干扰真实值，超时后恢复游走兜底）
-const realUntil: Record<string, number> = {}
 // [已接入] sensorId → 传感器类型索引（devices 加载后构建，用于 WS 数据分发）
 const sensorIndex = new Map<string, { type: string; name: string }>()
+// 初值全 0：只展示真实上报值，无数据时显示 0 而非模拟值
 const envState = reactive<Record<string, number>>(
-  Object.fromEntries(envDefs.map(d => [d.key, d.base]))
+  Object.fromEntries(envDefs.map(d => [d.key, 0]))
 )
 const envList = computed<EnvItem[]>(() =>
   envDefs.map(d => {
@@ -488,54 +477,26 @@ const envList = computed<EnvItem[]>(() =>
     }
   })
 )
-function tickEnv() {
-  for (const d of envDefs) {
-    // 真实值豁免期内不游走（超时后恢复 mock 兜底）
-    if (Date.now() < (realUntil[d.key] ?? 0)) continue
-    const next = envState[d.key] + (Math.random() - 0.5) * d.amp * 0.35
-    envState[d.key] = +Math.max(d.base - d.amp, Math.min(d.base + d.amp, next)).toFixed(d.decimals)
-  }
-}
 
 // ─────────────────────────────────────────────────────────────
-// 左栏 ② 生产进度 + 中栏核心指标 + 底部趋势 共享的机器状态
-// [已接入] 底部趋势温度序列由真实历史数据预热；machine 状态仍为 mock 随机游走兜底
+// 左栏 ② 生产进度 + 中栏核心指标 共享的机器状态
+// TCP 协议（0x0511/0x0531 帧）不含截割效率/电机电流/推进速度/冷却流量，
+// 等待对应传感器接入前全部显示 0（不伪造）
 // ─────────────────────────────────────────────────────────────
 const machine = reactive({
-  todayFootage: 18.6,
-  planFootage: 24.0,
-  totalFootage: 1258.6,
-  cutRate: 42.0,        // 截割效率 cut/min
-  motorCurrent: 160.4,  // 主电机电流 A
-  advanceSpeed: 1.28,   // 推进速度 m/min
-  coolingFlow: 65.0,    // 冷却水流量 L/min
-  cutterTemp: 56.4,     // 截割电机温度 ℃（趋势 + 遥测）
-  hydraulicPress: 28.5  // 液压压力 MPa（趋势）
+  todayFootage: 0,
+  planFootage: 0,
+  totalFootage: 0,
+  cutRate: 0,        // 截割效率 cut/min
+  motorCurrent: 0,   // 主电机电流 A
+  advanceSpeed: 0,   // 推进速度 m/min
+  coolingFlow: 0,    // 冷却水流量 L/min
+  cutterTemp: 0,     // 截割电机温度 ℃
+  hydraulicPress: 0  // 液压压力 MPa
 })
-const progressPct = computed(() => (machine.todayFootage / machine.planFootage) * 100)
-
-const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
-function tickMachine() {
-  machine.cutRate = +clamp(machine.cutRate + (Math.random() - 0.5) * 4, 36, 48).toFixed(1)
-  // 偶发冲高演示超阈值变橙（阈值 185A）
-  machine.motorCurrent = Math.random() < 0.06
-    ? +clamp(186 + Math.random() * 8, 186, 196).toFixed(1)
-    : +clamp(machine.motorCurrent + (Math.random() - 0.5) * 8, 150, 184).toFixed(1)
-  machine.advanceSpeed = +clamp(machine.advanceSpeed + (Math.random() - 0.5) * 0.2, 1.0, 1.5).toFixed(2)
-  // 偶发低于下限演示（下限 58L/min）
-  machine.coolingFlow = Math.random() < 0.05
-    ? +clamp(55 + Math.random() * 2.5, 55, 57.5).toFixed(1)
-    : +clamp(machine.coolingFlow + (Math.random() - 0.5) * 5, 58.5, 74).toFixed(1)
-  // 偶发温升演示（阈值 70℃）
-  machine.cutterTemp = Math.random() < 0.06
-    ? +clamp(70.5 + Math.random() * 5, 70.5, 76).toFixed(1)
-    : +clamp(machine.cutterTemp + (Math.random() - 0.5) * 3, 52, 69).toFixed(1)
-  machine.hydraulicPress = +clamp(machine.hydraulicPress + (Math.random() - 0.5) * 1.4, 26, 31).toFixed(1)
-  // 推进速度 1.28 m/min → 每 3s 进尺约 0.064m
-  const delta = (machine.advanceSpeed * 3 / 60) * (0.85 + Math.random() * 0.3)
-  machine.todayFootage = +(machine.todayFootage + delta).toFixed(2)
-  machine.totalFootage = +(machine.totalFootage + delta).toFixed(2)
-}
+const progressPct = computed(() =>
+  machine.planFootage > 0 ? (machine.todayFootage / machine.planFootage) * 100 : 0
+)
 
 // 中栏底部 4 个核心指标块
 const coreMetricDefs = [
@@ -547,7 +508,8 @@ const coreMetricDefs = [
 const coreMetricList = computed(() =>
   coreMetricDefs.map(d => {
     const value = machine[d.key as keyof typeof machine] as number
-    const over = d.direction === 'max' ? value >= d.threshold : value <= d.threshold
+    // 值为 0 表示尚无真实数据，不参与超限判定
+    const over = value > 0 && (d.direction === 'max' ? value >= d.threshold : value <= d.threshold)
     return { ...d, value, over, display: value.toFixed(d.decimals) }
   })
 )
@@ -557,32 +519,15 @@ const coreMetricList = computed(() =>
 // [已接入] 点位实时值由 WebSocket 推送驱动（SENSOR_TYPE_MAP：sensorId 类型 → 点位映射）
 // ─────────────────────────────────────────────────────────────
 const sensorPoints = reactive<SensorPoint[]>([
-  { id: 't0', name: 'T0 瓦斯（掘进面）', short: 'T0瓦斯', x: 155, y: 205, unit: '%', decimals: 2, base: 0.34, amp: 0.16, value: 0.34, warn: false, warnTicks: 0, warnable: true },
-  { id: 'dust', name: '掘进面粉尘', short: '粉尘', x: 368, y: 232, unit: 'mg/m³', decimals: 1, base: 14.5, amp: 6, value: 14.5, warn: false, warnTicks: 0, warnable: true },
-  { id: 't1', name: 'T1 瓦斯（回风侧）', short: 'T1瓦斯', x: 462, y: 200, unit: '%', decimals: 2, base: 0.28, amp: 0.1, value: 0.28, warn: false, warnTicks: 0, warnable: false },
-  { id: 'temp', name: '巷道温度', short: '温度', x: 582, y: 192, unit: '℃', decimals: 1, base: 24.2, amp: 1.8, value: 24.2, warn: false, warnTicks: 0, warnable: false },
-  { id: 'wind', name: '风速传感器', short: '风速', x: 686, y: 240, unit: 'm/s', decimals: 1, base: 3.3, amp: 0.5, value: 3.3, warn: false, warnTicks: 0, warnable: false },
-  { id: 'co', name: 'CO 传感器', short: 'CO', x: 768, y: 196, unit: 'ppm', decimals: 1, base: 5.8, amp: 1.8, value: 5.8, warn: false, warnTicks: 0, warnable: false },
-  { id: 'press', name: '压力监测点', short: '压力', x: 848, y: 228, unit: 'kPa', decimals: 1, base: 88.5, amp: 3, value: 88.5, warn: false, warnTicks: 0, warnable: false },
-  { id: 'hum', name: '湿度监测点', short: '湿度', x: 916, y: 196, unit: '%RH', decimals: 1, base: 60.5, amp: 3, value: 60.5, warn: false, warnTicks: 0, warnable: false }
+  { id: 't0', name: 'T0 瓦斯（掘进面）', short: 'T0瓦斯', x: 155, y: 205, unit: '%', decimals: 2, base: 0, amp: 0, value: 0, warn: false, warnTicks: 0, warnable: true },
+  { id: 'dust', name: '掘进面粉尘', short: '粉尘', x: 368, y: 232, unit: 'mg/m³', decimals: 1, base: 0, amp: 0, value: 0, warn: false, warnTicks: 0, warnable: true },
+  { id: 't1', name: 'T1 瓦斯（回风侧）', short: 'T1瓦斯', x: 462, y: 200, unit: '%', decimals: 2, base: 0, amp: 0, value: 0, warn: false, warnTicks: 0, warnable: false },
+  { id: 'temp', name: '巷道温度', short: '温度', x: 582, y: 192, unit: '℃', decimals: 1, base: 0, amp: 0, value: 0, warn: false, warnTicks: 0, warnable: false },
+  { id: 'wind', name: '风速传感器', short: '风速', x: 686, y: 240, unit: 'm/s', decimals: 1, base: 0, amp: 0, value: 0, warn: false, warnTicks: 0, warnable: false },
+  { id: 'co', name: 'CO 传感器', short: 'CO', x: 768, y: 196, unit: 'ppm', decimals: 1, base: 0, amp: 0, value: 0, warn: false, warnTicks: 0, warnable: false },
+  { id: 'press', name: '压力监测点', short: '压力', x: 848, y: 228, unit: 'kPa', decimals: 1, base: 0, amp: 0, value: 0, warn: false, warnTicks: 0, warnable: false },
+  { id: 'hum', name: '湿度监测点', short: '湿度', x: 916, y: 196, unit: '%RH', decimals: 1, base: 0, amp: 0, value: 0, warn: false, warnTicks: 0, warnable: false }
 ])
-function tickPoints() {
-  for (const p of sensorPoints) {
-    // 真实值豁免期内不游走、不触发预警（超时后恢复 mock 兜底）
-    if (Date.now() < (realUntil[p.id] ?? 0)) continue
-    if (p.warnTicks > 0) {
-      // 预警态：数值冲向高位
-      p.warnTicks--
-      p.value = +(p.base + p.amp * (0.85 + Math.random() * 0.15)).toFixed(p.decimals)
-      if (p.warnTicks === 0) p.value = +(p.base + (Math.random() - 0.3) * p.amp * 0.4).toFixed(p.decimals)
-    } else {
-      p.value = +(clamp(p.value + (Math.random() - 0.5) * p.amp * 0.3, p.base - p.amp * 0.5, p.base + p.amp * 0.5)).toFixed(p.decimals)
-      // 可预警点位间歇性进入预警（持续约 5 个 tick ≈ 15s）
-      if (p.warnable && Math.random() < 0.05) p.warnTicks = 5
-    }
-    p.warn = p.warnTicks > 0
-  }
-}
 
 // 点位悬停 tooltip
 const tunnelWrapRef = ref<HTMLDivElement | null>(null)
@@ -601,25 +546,12 @@ function onTunnelMove(e: MouseEvent) {
 // 右栏 ① AI 预测性维护 PHM
 // [接入点] 健康指数/剩余寿命未来由 PHM 推理服务接口返回
 // ─────────────────────────────────────────────────────────────
-const phm = reactive({ health: 92, rulDays: 410 })
-const phmHistory = [88, 90, 89, 91, 93, 92, 94, 92]
-function tickPhm() {
-  phm.health = Math.round(clamp(phm.health + (Math.random() - 0.5) * 2, 88, 96))
-  phm.rulDays = Math.round(clamp(phm.rulDays + (Math.random() - 0.5) * 4, 400, 420))
-}
+const phm = reactive({ health: 0, rulDays: 0 })
+const phmHistory: number[] = []
 
 // ─────────────────────────────────────────────────────────────
-// 右栏 ② 十米级遥测数据流（mock 2s 插入 + WebSocket 真实数据混合）
+// 右栏 ② 十米级遥测数据流（仅 WebSocket 真实数据，无 mock）
 // ─────────────────────────────────────────────────────────────
-const telemetryPool = [
-  { device: 'EBZ-260掘进机#01', sensor: '截割电机温度', unit: '℃', decimals: 1, min: 52, max: 75 },
-  { device: 'EBZ-260掘进机#01', sensor: '主电机电流', unit: 'A', decimals: 1, min: 155, max: 195 },
-  { device: 'FBD-No7.5通风机', sensor: '轴承温度', unit: '℃', decimals: 1, min: 45, max: 60 },
-  { device: 'MD-280排水泵#02', sensor: '出口压力', unit: 'MPa', decimals: 2, min: 3.2, max: 4.5 },
-  { device: 'KJ90环境站#03', sensor: 'CH4 浓度', unit: '%', decimals: 2, min: 0.2, max: 0.7 },
-  { device: 'DSJ-100皮带机', sensor: '带速', unit: 'm/s', decimals: 2, min: 2.0, max: 2.8 },
-  { device: 'GCG100粉尘仪', sensor: '粉尘浓度', unit: 'mg/m³', decimals: 1, min: 8, max: 28 }
-]
 const telemetryStream = ref<TelemetryItem[]>([])
 let telemetrySeq = 0
 
@@ -631,18 +563,7 @@ function pushTelemetry(item: TelemetryItem) {
   telemetryStream.value.unshift(item)
   if (telemetryStream.value.length > 12) telemetryStream.value.pop()
 }
-function mockTelemetryTick() {
-  const s = telemetryPool[Math.floor(Math.random() * telemetryPool.length)]
-  const value = +(s.min + Math.random() * (s.max - s.min)).toFixed(s.decimals)
-  pushTelemetry({
-    id: `mock_${++telemetrySeq}_${Date.now()}`,
-    time: fmtHMS(new Date()),
-    device: s.device, sensor: s.sensor,
-    value, unit: s.unit, decimals: s.decimals,
-    status: value > s.max * 0.9 ? 'warning' : 'normal'
-  })
-}
-// [已接入] 真实传感器值 → 大屏目标（env 环境项 + 态势图点位），并刷新 15s 豁免窗口
+// [已接入] 真实传感器值 → 大屏目标（env 环境项 + 态势图点位）
 function applySensorValue(type: string, value: number) {
   const map = SENSOR_TYPE_MAP[(type || '').toLowerCase()]
   if (!map) return
@@ -650,14 +571,10 @@ function applySensorValue(type: string, value: number) {
   if (map.env && envState[map.env] !== undefined) {
     const def = envDefs.find(d => d.key === map.env)
     envState[map.env] = +scaled.toFixed(def?.decimals ?? 1)
-    realUntil[map.env] = Date.now() + 15000
   }
   if (map.point) {
     const p = sensorPoints.find(sp => sp.id === map.point)
-    if (p) {
-      p.value = +scaled.toFixed(p.decimals)  // 只更新值，不触发 warn 逻辑
-      realUntil[p.id] = Date.now() + 15000
-    }
+    if (p) p.value = +scaled.toFixed(p.decimals)  // 只更新值，不触发 warn 逻辑
   }
 }
 
@@ -675,67 +592,51 @@ function seedRealInitialValues() {
   }
 }
 
-// [已接入] WebSocket 真实遥测数据到达时插入流，并按 SENSOR_TYPE_MAP 驱动大屏目标（真实优先，mock 兜底）
+// [已接入] WebSocket 真实遥测数据 → 遥测流 + 大屏目标 + 温度趋势（唯一数据来源，无 mock）
 function handleWsData(data: WsDeviceData) {
   if (data.type !== 'data') return
+  lastRealDataAt.value = Date.now()
+  const value = typeof data.value === 'number' ? data.value : 0
+  const meta = sensorIndex.get(data.sensorId)
+  // 遥测流：显示设备名/传感器名（sensorIndex 可查时用可读名称）
+  const devName = deviceStore.devices.find(d => d.id === data.deviceId)?.name || data.deviceId
   pushTelemetry({
     id: `ws_${++telemetrySeq}_${Date.now()}`,
     time: fmtHMS(new Date()),
-    device: data.deviceId, sensor: data.sensorId,
-    value: typeof data.value === 'number' ? data.value : 0,
-    unit: data.unit || '', decimals: 2, status: 'normal'
+    device: devName, sensor: meta?.name || data.sensorId,
+    value, unit: data.unit || '', decimals: 2, status: 'normal'
   })
-  // 真实值覆盖：查 sensorIndex 得到传感器类型，命中映射则驱动 env/point 目标
-  const meta = sensorIndex.get(data.sensorId)
-  if (meta) applySensorValue(meta.type, typeof data.value === 'number' ? data.value : 0)
+  // 真实值覆盖：命中映射则驱动 env/point 目标
+  if (meta) {
+    applySensorValue(meta.type, value)
+    // 温度真实值 → 底部趋势（TCP 0x0511 帧含 temperature）
+    if ((meta.type || '').toLowerCase() === 'temperature') {
+      pushTrendPoint(value)
+      updateCharts()
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
-// 右栏 ③ 智能联动中心（mock 事件池轮换）
-// [接入点] 未来由规则引擎/联动执行记录接口提供
+// 右栏 ③ 智能联动中心
+// [接入点] 等待规则引擎/联动执行记录接口；接入前显示空状态（不伪造事件）
 // ─────────────────────────────────────────────────────────────
-const linkagePool = [
-  { device: 'EBZ-260 掘进机', action: '自动增强外喷雾降尘已启动' },
-  { device: 'FBD-No7.5 局扇', action: '变频器频率上调至 45Hz 指令已下发' },
-  { device: 'MD-280 排水泵', action: '备用泵轮换启动，双回路切换完成' },
-  { device: 'KJ90 断电仪', action: '掘进面瓦斯电闭锁自检通过' },
-  { device: 'DSJ-100 皮带机', action: '沿线洒水降尘联动已生效' }
-]
 const linkageEvents = ref<LinkageEvent[]>([])
-let linkageSeq = 0
-function seedLinkage() {
-  linkageEvents.value = linkagePool.slice(0, 4).map((l, i) => ({
-    id: `lk_${i}`, time: fmtHMS(new Date(Date.now() - (i + 1) * 40000)),
-    device: l.device, action: l.action
-  }))
-}
-function linkageTick() {
-  const l = linkagePool[linkageSeq % linkagePool.length]
-  linkageSeq++
-  linkageEvents.value.unshift({
-    id: `lk_${linkageSeq}_${Date.now()}`,
-    time: fmtHMS(new Date()), device: l.device, action: l.action
-  })
-  if (linkageEvents.value.length > 5) linkageEvents.value.pop()
-}
 
 // ─────────────────────────────────────────────────────────────
-// 左栏 ③ 设备类型分布（真实聚合 + mock 兜底，横向条形图）
-// [已接入] devices 加载后按 device.type 聚合（type 为空归「其他」，降序取前 6；空列表保持 mock 兜底）
+// 左栏 ③ 设备类型分布（真实聚合，横向条形图）
+// [已接入] devices 加载后按 device.type 聚合（type 为空归「其他」，降序取前 6；无设备则留空）
 // ─────────────────────────────────────────────────────────────
-const deviceTypeData = ref<{ name: string; value: number }[]>([
-  { name: '瓦斯/环境站', value: 18 },
-  { name: '主皮带运线', value: 14 },
-  { name: '掘进机本体', value: 12 },
-  { name: '主通风机', value: 10 },
-  { name: '主排水泵', value: 8 },
-  { name: '供配电系统', value: 6 }
-])
+const deviceTypeData = ref<{ name: string; value: number }[]>([])
 const deviceTypeTotal = computed(() => deviceTypeData.value.reduce((s, d) => s + d.value, 0))
 
-// [已接入] 设备类型真实聚合：仅当设备数 > 0 时替换 mock 数据
+// [已接入] 设备类型真实聚合
 function aggregateDeviceTypes() {
-  if (deviceStore.devices.length === 0) return  // 空列表保持 mock 兜底
+  if (deviceStore.devices.length === 0) {
+    deviceTypeData.value = []
+    deviceTypeChart?.setOption(buildDeviceTypeOption())
+    return
+  }
   const counts = new Map<string, number>()
   for (const d of deviceStore.devices) {
     const key = (d.type || '').trim() || '其他'
@@ -880,41 +781,23 @@ function initAllCharts() {
 // ─────────────────────────────────────────────────────────────
 const trendLabels: string[] = []
 const trendLabelFlags: boolean[] = []  // 该点位是否为其所在分钟的第一个出现点
-const trendTemp: number[] = []
-const trendPress: number[] = []
-const trendSpeed: number[] = []
+const trendTemp: number[] = []         // 仅真实温度值（TCP 0x0511 / 传感器上报）
 const TREND_WINDOW = 60
 
-function pushTrendPoint(temp: number, press: number, speed: number) {
+function pushTrendPoint(temp: number) {
   const label = fmtHMS(new Date())
   const prev = trendLabels.length > 0 ? trendLabels[trendLabels.length - 1] : ''
   trendLabels.push(label)
   trendLabelFlags.push(label.slice(0, 5) !== prev.slice(0, 5))
   trendTemp.push(+temp.toFixed(1))
-  trendPress.push(+press.toFixed(1))
-  trendSpeed.push(+speed.toFixed(2))
   if (trendLabels.length > TREND_WINDOW) {
     trendLabels.shift(); trendLabelFlags.shift()
-    trendTemp.shift(); trendPress.shift(); trendSpeed.shift()
-  }
-}
-function seedTrend() {
-  const now = Date.now()
-  for (let i = TREND_WINDOW - 1; i >= 0; i--) {
-    const t = new Date(now - i * 3000)
-    const label = fmtHMS(t)
-    const prev = trendLabels.length > 0 ? trendLabels[trendLabels.length - 1] : ''
-    trendLabels.push(label)
-    trendLabelFlags.push(label.slice(0, 5) !== prev.slice(0, 5))
-    const phase = i / 6
-    trendTemp.push(+(56.4 + Math.sin(phase) * 4 + (Math.random() - 0.5) * 1.5).toFixed(1))
-    trendPress.push(+(28.5 + Math.cos(phase) * 1.2 + (Math.random() - 0.5) * 0.5).toFixed(1))
-    trendSpeed.push(+(1.28 + Math.sin(phase / 2) * 0.08 + (Math.random() - 0.5) * 0.05).toFixed(2))
+    trendTemp.shift()
   }
 }
 
 // [已接入] 底部趋势真实预热：取第一台有温度传感器且在线的设备的历史数据重建窗口
-// （X 轴用真实时间戳、温度序列用真实值；压力/推进速度保持 mock 种子并按长度对齐；失败保持 mock 种子）
+// （X 轴与温度序列均来自真实历史，失败留空）
 async function warmTrendWithRealData() {
   try {
     const dev = deviceStore.devices.find(d =>
@@ -939,15 +822,9 @@ async function warmTrendWithRealData() {
       trendLabelFlags.push(label.slice(0, 5) !== prev.slice(0, 5))
       trendTemp.push(+Number(p.value).toFixed(1))
     }
-    // 压力/推进速度：保持 mock 种子并对齐长度（不足用 mock 值填充，多余截断）
-    const n = trendLabels.length
-    while (trendPress.length < n) trendPress.push(+(28.5 + (Math.random() - 0.5) * 1.2).toFixed(1))
-    if (trendPress.length > n) trendPress.splice(0, trendPress.length - n)
-    while (trendSpeed.length < n) trendSpeed.push(+(1.28 + (Math.random() - 0.5) * 0.1).toFixed(2))
-    if (trendSpeed.length > n) trendSpeed.splice(0, trendSpeed.length - n)
     // 图表已初始化时立即刷新（未初始化则由 initAllCharts 读取）
     updateCharts()
-  } catch { /* 失败保持 mock 种子，不报错 */ }
+  } catch { /* 失败留空，不伪造 */ }
 }
 
 function buildTrendOption(): echarts.EChartsCoreOption {
@@ -960,7 +837,7 @@ function buildTrendOption(): echarts.EChartsCoreOption {
     legend: {
       top: 4, right: 12, itemWidth: 14, itemHeight: 8, itemGap: 16,
       textStyle: { color: DIM, fontSize: 11 },
-      data: ['截割电机温度 ℃', '液压压力 MPa', '推进速度 m/min']
+      data: ['温度 ℃（真实遥测）']
     },
     grid: { top: 30, right: 58, bottom: 22, left: 46 },
     xAxis: {
@@ -974,23 +851,15 @@ function buildTrendOption(): echarts.EChartsCoreOption {
         formatter: (v: string) => v.slice(0, 5)
       }
     },
-    yAxis: [
-      {
-        type: 'value', name: '℃', min: 40, max: 90,
-        nameTextStyle: { color: DIM, fontSize: 10, align: 'right' },
-        axisLabel: { color: DIM, fontSize: 10, fontFamily: MONO },
-        splitLine: { lineStyle: { color: 'rgba(46,155,255,0.10)', type: 'dashed' } }
-      },
-      {
-        type: 'value', name: 'MPa', min: 0, max: 40,
-        nameTextStyle: { color: DIM, fontSize: 10, align: 'right' },
-        axisLabel: { color: DIM, fontSize: 10, fontFamily: MONO },
-        splitLine: { show: false }
-      }
-    ],
+    yAxis: {
+      type: 'value', name: '℃', min: 0, max: 90,
+      nameTextStyle: { color: DIM, fontSize: 10, align: 'right' },
+      axisLabel: { color: DIM, fontSize: 10, fontFamily: MONO },
+      splitLine: { lineStyle: { color: 'rgba(46,155,255,0.10)', type: 'dashed' } }
+    },
     series: [
       {
-        name: '截割电机温度 ℃', type: 'line', smooth: true, showSymbol: false,
+        name: '温度 ℃（真实遥测）', type: 'line', smooth: true, showSymbol: false,
         data: trendTemp, lineStyle: { width: 2, color: CYAN }, itemStyle: { color: CYAN },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -998,22 +867,6 @@ function buildTrendOption(): echarts.EChartsCoreOption {
             { offset: 1, color: 'rgba(0,229,255,0)' }
           ])
         }
-      },
-      {
-        name: '液压压力 MPa', type: 'line', smooth: true, showSymbol: false,
-        yAxisIndex: 1, data: trendPress,
-        lineStyle: { width: 2, color: BLUE }, itemStyle: { color: BLUE },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(46,155,255,0.18)' },
-            { offset: 1, color: 'rgba(46,155,255,0)' }
-          ])
-        }
-      },
-      {
-        name: '推进速度 m/min', type: 'line', smooth: true, showSymbol: false,
-        yAxisIndex: 1, data: trendSpeed,
-        lineStyle: { width: 1.5, color: DIM, type: 'dashed' }, itemStyle: { color: DIM }
       }
     ]
   }
@@ -1028,7 +881,7 @@ function updateCharts() {
   })
   trendChart?.setOption({
     xAxis: { data: trendLabels },
-    series: [{ data: trendTemp }, { data: trendPress }, { data: trendSpeed }]
+    series: [{ data: trendTemp }]
   })
 }
 
@@ -1042,29 +895,22 @@ function handleResize() {
 
 // ─────────────────────────────────────────────────────────────
 // 定时器编排（onActivated / onDeactivated 安全启停）
+// 全部 mock tick 已移除：大屏数据唯一来源为 WebSocket 真实推送 + 真实 API
 // ─────────────────────────────────────────────────────────────
 let dataTimer: ReturnType<typeof setInterval> | undefined
-let telemetryTimer: ReturnType<typeof setInterval> | undefined
-let linkageTimer: ReturnType<typeof setInterval> | undefined
 
 function startLoops() {
   stopLoops()
   ws.connect()
-  // [已接入] WebSocket 全量设备数据 → 遥测流 + 大屏目标分发（真实数据优先，mock 兜底）
+  // [已接入] WebSocket 全量设备数据 → 遥测流 + 环境项 + 态势图点位 + 温度趋势
   wsUnsub = ws.onAllDeviceData(handleWsData)
+  // 仅刷新数据源徽标状态（实时 = WS 已连且 20s 内收到过真实数据）
   dataTimer = setInterval(() => {
-    sourceLive.value = ws.connected && !isInFallback() // [已接入] 数据源徽标: WS 已连且未降级
-    tickKpis(); tickEnv(); tickMachine(); tickPoints(); tickPhm()
-    pushTrendPoint(machine.cutterTemp, machine.hydraulicPress, machine.advanceSpeed)
-    updateCharts()
+    sourceLive.value = ws.connected && Date.now() - lastRealDataAt.value < 20_000
   }, 3000)
-  telemetryTimer = setInterval(mockTelemetryTick, 2000)
-  linkageTimer = setInterval(linkageTick, 12000)
 }
 function stopLoops() {
   if (dataTimer) { clearInterval(dataTimer); dataTimer = undefined }
-  if (telemetryTimer) { clearInterval(telemetryTimer); telemetryTimer = undefined }
-  if (linkageTimer) { clearInterval(linkageTimer); linkageTimer = undefined }
   if (wsUnsub) { wsUnsub(); wsUnsub = null }
 }
 
@@ -1073,21 +919,15 @@ onMounted(async () => {
   clockTimer = setInterval(updateClock, 1000)
   document.addEventListener('fullscreenchange', onFullscreenChange)
 
-  seedTrend()
-  seedLinkage()
-  for (let i = 0; i < 9; i++) mockTelemetryTick()
-
   // [已接入] 真实设备数/在线数（deviceStore）+ 首屏真实值/类型聚合
   try {
     await deviceStore.fetchDevices()
-    if (deviceStore.totalCount > 0) {
-      kpiValues.devices = deviceStore.totalCount
-      kpiValues.online = deviceStore.onlineCount
-    }
+    kpiValues.devices = deviceStore.totalCount
+    kpiValues.online = deviceStore.onlineCount
     seedRealInitialValues()   // [已接入] sensorId 索引 + 命中映射的传感器当前值（首屏即真实）
-    aggregateDeviceTypes()    // [已接入] 设备类型分布真实聚合（空列表保持 mock）
-  } catch { /* 保持 mock 值 */ }
-  warmTrendWithRealData()     // [已接入] 底部趋势真实预热（异步，失败保持 mock 种子）
+    aggregateDeviceTypes()    // [已接入] 设备类型分布真实聚合（无设备则留空）
+  } catch { /* 后端不可达，保持 0 */ }
+  warmTrendWithRealData()     // [已接入] 底部趋势真实历史预热（失败留空）
   fetchAlertMarquee()
 
   await nextTick()
@@ -1245,6 +1085,12 @@ onUnmounted(() => {
 }
 .tb-center p { margin: 2px 0 0; font-size: 9px; letter-spacing: 3px; color: var(--dim); }
 .tb-right { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.stream-empty {
+  position: absolute; inset: 34px 0 0; display: flex;
+  align-items: center; justify-content: center;
+  font-size: 11px; color: var(--dim); letter-spacing: 1px;
+  pointer-events: none;
+}
 .src-badge {
   display: inline-flex; align-items: center; margin-right: 8px;
   padding: 3px 10px; font-size: 11px; border-radius: 3px;
