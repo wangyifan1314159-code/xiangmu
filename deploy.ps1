@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # IoT 工业物联网与大数据平台 · 自动化部署与构建工具 v2.0
 # ==============================================================================
 
@@ -73,18 +73,24 @@ function Ensure-EnvFile {
     $EnvPath = Join-Path $ScriptDir ".env"
     if (-not (Test-Path $EnvPath)) {
         Write-Warn ".env 文件不存在，正在自动生成安全随机密钥与默认配置..."
-        $JwtSecret = [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Max 256 }))
+        # JWT secret 使用 CSPRNG 生成 32 字节随机数后 Base64 编码（Get-Random 非密码学安全，不用于密钥）
+        $RngBytes = New-Object byte[] 32
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($RngBytes)
+        $JwtSecret = [System.Convert]::ToBase64String($RngBytes)
         $DbPass = "IotPlatform#" + (Get-Random -Minimum 1000 -Maximum 9999) + "!Deploy"
-        $EmqxDashPass = "EmqxDash_" + [System.Guid]::NewGuid().ToString("N").Substring(0, 12)
+        $EmqxDashPass = [System.Guid]::NewGuid().ToString("N").Substring(0, 16)
+        $EmqxMqttPass = "Iot" + [System.Guid]::NewGuid().ToString("N").Substring(0, 24)
+        $RedisPass = [System.Guid]::NewGuid().ToString("N").Substring(0, 24)
         $MinioPass = "Minio_" + [System.Guid]::NewGuid().ToString("N").Substring(0, 12)
-        
+
         $lines = @(
             "# 自动生成的部署环境变量",
             ("DB_PASSWORD=" + $DbPass),
             ("APP_JWT_SECRET=" + $JwtSecret),
             ("EMQX_DASHBOARD_PASSWORD=" + $EmqxDashPass),
             "EMQX_MQTT_USERNAME=iot-platform",
-            "EMQX_MQTT_PASSWORD=iotplatform2024",
+            ("EMQX_MQTT_PASSWORD=" + $EmqxMqttPass),
+            ("REDIS_PASSWORD=" + $RedisPass),
             "MINIO_ROOT_USER=iotminio",
             ("MINIO_ROOT_PASSWORD=" + $MinioPass)
         )
@@ -206,8 +212,7 @@ function Show-Dashboard {
     Write-Host "                    平台部署成功 · 服务访问清单                           " -ForegroundColor Green
     Write-Host "==========================================================================" -ForegroundColor DarkCyan
     Write-Host " Web 前端与平台控制台 : http://localhost:8080" -ForegroundColor Yellow
-    Write-Host "    - 初始超级管理员账号 : admin / admin123" -ForegroundColor Gray
-    Write-Host "    - 初始普通用户账号   : user / user123" -ForegroundColor Gray
+    Write-Host "    - 默认种子账号已禁用；如需演示账号请设置 APP_SEED_USERS_ENABLED=true 并立即修改密码" -ForegroundColor Gray
     Write-Host "    - 概览与数字孪生看板 : http://localhost:8080/dashboard" -ForegroundColor Gray
     Write-Host "    - 大数据分析大屏     : http://localhost:8080/bigdata" -ForegroundColor Gray
     Write-Host "    - AI 智能辅助系统    : http://localhost:8080/ai-assistant" -ForegroundColor Gray

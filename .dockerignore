@@ -23,3 +23,8 @@ iot-backend/target/*.original
 
 # 文档
 *.md
+
+# 部署密钥与环境变量（严禁打入镜像）
+.env
+.env.*
+*.env

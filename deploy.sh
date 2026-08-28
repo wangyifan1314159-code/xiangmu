@@ -44,14 +44,17 @@ ensure_env_file() {
         echo -e " ${YELLOW}[!]${NC} .env 文件不存在，正在自动生成安全随机密钥与默认配置..."
         JWT_SECRET=$(openssl rand -base64 48 2>/dev/null || head -c 32 /dev/urandom | base64)
         DB_PASS="IotPlatform#$(shuf -i 1000-9999 -n 1 2>/dev/null || echo 2024)!Deploy"
-        EMQX_DASH_PASS="EmqxDash_$(openssl rand -hex 6 2>/dev/null || echo 7f4c9b2e6a1d)"
+        EMQX_DASH_PASS="$(openssl rand -hex 8 2>/dev/null || openssl rand -hex 6)"
+        EMQX_MQTT_PASS="Iot$(openssl rand -hex 12 2>/dev/null || head -c 12 /dev/urandom | base64 | tr -d '=+/')"
+        REDIS_PASS="$(openssl rand -hex 12 2>/dev/null || head -c 12 /dev/urandom | base64 | tr -d '=+/')"
         cat <<EOF > .env
 # 自动生成的部署环境变量
 DB_PASSWORD=$DB_PASS
 APP_JWT_SECRET=$JWT_SECRET
 EMQX_DASHBOARD_PASSWORD=$EMQX_DASH_PASS
 EMQX_MQTT_USERNAME=iot-platform
-EMQX_MQTT_PASSWORD=iotplatform2024
+EMQX_MQTT_PASSWORD=$EMQX_MQTT_PASS
+REDIS_PASSWORD=$REDIS_PASS
 MINIO_ROOT_USER=iotminio
 MINIO_ROOT_PASSWORD=Minio_$(openssl rand -hex 6 2>/dev/null || echo 9d3a7c1f5b8e)
 EOF
@@ -97,8 +100,7 @@ show_dashboard() {
     echo -e "${GREEN}                      🎉 平台部署成功 · 服务访问清单                           ${NC}"
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════════${NC}"
     echo -e " ${YELLOW}🌐 Web 前端与平台控制台 : http://localhost:8080${NC}"
-    echo -e "    ├─ 初始超级管理员账号 : admin / admin123"
-    echo -e "    ├─ 初始普通用户账号   : user / user123"
+    echo -e "    ├─ 默认种子账号已禁用；如需演示账号请设置 APP_SEED_USERS_ENABLED=true 并立即修改密码"
     echo -e "    ├─ 概览 & 掘进机孪生  : http://localhost:8080/dashboard"
     echo -e "    ├─ 大数据分析大屏     : http://localhost:8080/bigdata"
     echo -e "    └─ AI 智能辅助系统    : http://localhost:8080/ai-assistant"

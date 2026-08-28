@@ -97,10 +97,14 @@ public class AuthService implements UserDetailsService {
         removeCode(phone);
 
         User user = userRepository.findByPhone(phone).orElseGet(() -> {
+            // 派生 username/email 与开放注册取值重叠时可能已被抢注，导致该手机号永远无法首次登录；
+            // 冲突时改用追加 4 位随机数字后缀的方案确保唯一
+            String username = deriveUniqueUsername(phone);
+            String email = deriveUniqueEmail(phone);
             // 自动注册的账号使用随机密码（该账号仅可通过手机验证码登录）
             User newUser = User.builder()
-                    .username("用户" + phone)
-                    .email(phone + "@iot.com")
+                    .username(username)
+                    .email(email)
                     .phone(phone)
                     .password(passwordEncoder.encode(randomToken()))
                     .role("USER")
@@ -207,5 +211,23 @@ public class AuthService implements UserDetailsService {
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) sb.append(String.format("%02x", b));
         return sb.toString();
+    }
+
+    /** 手机号自动注册的派生 username；与已有用户冲突时追加 4 位随机数字后缀（防抢注导致手机号无法首次登录） */
+    private String deriveUniqueUsername(String phone) {
+        String username = "用户" + phone;
+        while (userRepository.existsByUsername(username)) {
+            username = "用户" + phone + String.format("%04d", secureRandom.nextInt(10_000));
+        }
+        return username;
+    }
+
+    /** 手机号自动注册的派生 email；与已有用户冲突时追加 4 位随机数字后缀（防抢注导致手机号无法首次登录） */
+    private String deriveUniqueEmail(String phone) {
+        String email = phone + "@iot.com";
+        while (userRepository.existsByEmail(email)) {
+            email = phone + String.format("%04d", secureRandom.nextInt(10_000)) + "@iot.com";
+        }
+        return email;
     }
 }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iot.model.Device;
 import com.iot.repository.DeviceRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +23,14 @@ public class MqttMessageHandler {
     private final ObjectMapper objectMapper;
     private final DataService dataService;
     private final DeviceRepository deviceRepository;
+
+    /**
+     * 命令信道认证 token（app.mqtt.command-token）：
+     * 非空时命令消息 payload 必须携带匹配的 commandToken/token 字段，验证命令来源为平台自身；
+     * 留空（未配置）时拒绝所有 MQTT 命令消息（fail-closed）
+     */
+    @Value("${app.mqtt.command-token:}")
+    private String commandToken;
 
     public MqttMessageHandler(ObjectMapper objectMapper, DataService dataService,
                               DeviceRepository deviceRepository) {
@@ -74,11 +83,22 @@ public class MqttMessageHandler {
                     }
                 }
                 case "command" -> {
+                    // 命令信道认证：防止能连上 broker 的任意客户端伪造平台命令下发执行器
+                    // fail-closed：未配置 token 时一律丢弃；配置了 token 时 payload 必须携带匹配的 commandToken/token 字段
+                    if (commandToken == null || commandToken.isBlank()) {
+                        log.warn("MQTT command dropped: command-token not configured, deviceId={}", deviceId);
+                        return;
+                    }
                     String command = (String) data.get("command");
                     String actuator = (String) data.get("actuator");
+                    Object token = data.get("commandToken") != null ? data.get("commandToken") : data.get("token");
                     if (command != null && actuator != null) {
-                        // 设备已注册校验通过；命令仍走内部受信通道（MQTT 回调线程无登录上下文）
-                        String result = dataService.sendCommandFromSystem(deviceId, command,
+                        if (!commandToken.equals(token)) {
+                            log.warn("MQTT command dropped: invalid or missing command token, deviceId={}", deviceId);
+                            return;
+                        }
+                        // 设备已注册校验、命令来源 token 校验均通过后，走内部受信通道（MQTT 回调线程无登录上下文）
+                        dataService.sendCommandFromSystem(deviceId, command,
                                 java.util.Map.of("actuator", actuator));
                         log.info("MQTT command: {} → {} {}", deviceId, actuator, command);
                     }

@@ -111,6 +111,8 @@ app:
     # EMQX 启用认证后必须通过环境变量注入一致凭据（与 docker-compose 中 EMQX_MQTT_USERNAME/PASSWORD 保持一致）
     username: ${APP_MQTT_USERNAME:}
     password: ${APP_MQTT_PASSWORD:}
+    # 非空时命令消息 payload 必须携带匹配的 token 字段，用于验证命令来源为平台自身；留空时拒绝所有 MQTT 命令消息
+    command-token: ${APP_MQTT_COMMAND_TOKEN:}
     topics:
       telemetry: iot/+/telemetry  # 控制传感器设备数据上报
       status: iot/+/status        #

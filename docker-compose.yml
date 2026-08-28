@@ -17,7 +17,8 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:?请在 .env 或环境中设置 DB_PASSWORD}
       POSTGRES_DB: iotdb
     ports:
-      - "5432:5432"
+      # 数据库仅本机访问，禁止暴露到外部网卡（业务端口 8080 保持对外）
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -33,17 +34,18 @@ services:
     ports:
       - "1883:1883"    # MQTT（MQTTX / 设备连接）
       - "8083:8083"    # MQTT over WebSocket
-      - "18083:18083"  # EMQX Dashboard（admin/public）
+      - "18083:18083"  # EMQX Dashboard（密码见 .env 中 EMQX_DASHBOARD_PASSWORD）
     environment:
-      # 生产环境必须覆盖管理台默认密码（EMQX 默认 admin/public）
-      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:-public}
+      # 管理台密码必须由 .env 注入，缺失即拒绝启动（EMQX 默认 admin/public 属弱口令）
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:?请在 .env 中设置 EMQX_DASHBOARD_PASSWORD}
       # EMQX 5.x 内置数据库认证：禁止匿名连接，设备/平台须使用下方凭据
       EMQX_AUTHENTICATION__1__MECHANISM: password_based
       EMQX_AUTHENTICATION__1__BACKEND: built_in_database
       EMQX_AUTHENTICATION__1__USER_ID_TYPE: username
       EMQX_AUTHENTICATION__1__PASSWORD_HASH_ALGORITHM__NAME: sha256
       EMQX_AUTHENTICATION__1__BOOTSTRAP_USERS__1__USER_ID: ${EMQX_MQTT_USERNAME:-iot-platform}
-      EMQX_AUTHENTICATION__1__BOOTSTRAP_USERS__1__PASSWORD: ${EMQX_MQTT_PASSWORD:-iotplatform2024}
+      # broker 侧 MQTT 密码必须由 .env 注入，禁止回退到弱口令 iotplatform2024
+      EMQX_AUTHENTICATION__1__BOOTSTRAP_USERS__1__PASSWORD: ${EMQX_MQTT_PASSWORD:?请在 .env 中设置 EMQX_MQTT_PASSWORD}
     volumes:
       - emqx-data:/opt/emqx/data
     healthcheck:
@@ -69,7 +71,8 @@ services:
       APP_MQTT_BROKER_URL: tcp://emqx:1883
       # EMQX 认证凭据（与 EMQX 服务 bootstrap 用户保持一致）
       APP_MQTT_USERNAME: ${EMQX_MQTT_USERNAME:-iot-platform}
-      APP_MQTT_PASSWORD: ${EMQX_MQTT_PASSWORD:-iotplatform2024}
+      # 应用侧 MQTT 密码必须由 .env 注入，禁止回退到弱口令 iotplatform2024
+      APP_MQTT_PASSWORD: ${EMQX_MQTT_PASSWORD:?请在 .env 中设置 EMQX_MQTT_PASSWORD}
       # 数据库指向同网络内的 postgres（覆盖 deploy 配置里的 localhost 默认值）
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/iotdb
       # JWT 密钥：生产必须从宿主机环境变量注入（deploy profile 缺失时应用拒绝启动）
@@ -78,9 +81,9 @@ services:
       APP_JWT_SECRET: ${APP_JWT_SECRET:?请在 .env 或环境中设置 APP_JWT_SECRET}
       APP_TCP_ACCESS_TOKEN: ${APP_TCP_ACCESS_TOKEN:-}
       APP_TCP_MAX_DEVICES: ${APP_TCP_MAX_DEVICES:-256}
-      # 部署后提供可用账号与示例设备（admin/admin123、user/user123）；
-      # 生产环境请设为 false 并自行创建账号
-      APP_SEED_USERS_ENABLED: ${APP_SEED_USERS_ENABLED:-true}
+      # 种子账号默认关闭：开启会创建 admin/admin123、user/user123 等弱口令账号；
+      # 如需演示请显式设 APP_SEED_USERS_ENABLED=true 并立即修改密码
+      APP_SEED_USERS_ENABLED: ${APP_SEED_USERS_ENABLED:-false}
       APP_SEED_DATA_ENABLED: ${APP_SEED_DATA_ENABLED:-true}
       TZ: Asia/Shanghai
     # 后端 MQTT 客户端首次连接失败即放弃（bean 置空），必须等 EMQX 就绪后再启动

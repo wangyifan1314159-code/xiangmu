@@ -127,7 +127,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                                 user.getName(), deviceId);
                         throw new IllegalArgumentException("无权订阅该设备的数据");
                     }
+                    return;
                 }
+
+                // 默认拒绝：未命中任何白名单分支的订阅主题一律拒绝，防止监听未知/内部主题
+                log.warn("WebSocket subscribe denied: user={} tried non-whitelisted topic {}",
+                        user.getName(), destination);
+                throw new IllegalArgumentException("无权订阅该主题");
             }
         });
     }

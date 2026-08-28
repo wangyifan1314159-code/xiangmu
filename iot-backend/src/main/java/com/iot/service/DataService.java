@@ -248,6 +248,16 @@ public class DataService {
         // 数据上报前校验设备归属（API Key 设备只能写自身，普通用户只能写自己的设备）
         Device device = requireOwnedDevice(deviceId);
         Long uid = device.getOwnerId();
+        // sensorId 归属校验：sensor 已注册但不属于该设备时拒绝写入（防跨设备 IDOR）；
+        // sensor 未注册时维持原有行为（仅写时序数据，不回写传感器实时值）。
+        // 本方法在事务内，可安全初始化 LAZY 的 device 关联
+        Optional<Sensor> sensorOpt = sensorRepository.findById(sensorId);
+        if (sensorOpt.isPresent()) {
+            Sensor sensor = sensorOpt.get();
+            if (sensor.getDevice() == null || !deviceId.equals(sensor.getDevice().getDeviceId())) {
+                throw new RuntimeException("传感器不存在或无权访问: " + sensorId);
+            }
+        }
         // 传感器类型未提供时自动查补
         if (sensorType == null) {
             sensorType = sensorRepository.findById(sensorId).map(Sensor::getType).orElse(null);
@@ -333,6 +343,13 @@ public class DataService {
     private void updateSensorValue(String deviceId, String sensorId, double value) {
         try {
             sensorRepository.findById(sensorId).ifPresent(sensor -> {
+                // sensorId 归属校验：sensor 必须挂在该设备下，防止跨设备回写他人传感器实时值（IDOR）；
+                // 本方法运行在异步线程（无事务上下文），故用 repository 派生查询校验归属，
+                // 避免触发 LAZY 的 device 关联初始化（LazyInitializationException）
+                if (!sensorRepository.existsByIdAndDevice_DeviceId(sensorId, deviceId)) {
+                    log.warn("Sensor value update dropped: sensor={} does not belong to device={}", sensorId, deviceId);
+                    return;
+                }
                 sensor.setValue(value);
                 sensorRepository.save(sensor);
             });

@@ -8,12 +8,12 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/bigdata/analytics")
-// 安全说明：本模块未引入 spring-boot-starter-security，当前 /api/bigdata/analytics/** 全部端点
-// 均无认证/鉴权，仅用于内网开发调试。metric-summary 已改为显式返回 501 (未接入 Doris 聚合宽表，
-// 不再返回伪造数据)；device-health / screen-overview 仍返回硬编码示例数据，接入真实数据源前同样
-// 需要替换。对外暴露或接入真实数据源前必须：
-//   1) 引入 spring-boot-starter-security 并配置最小权限 (API-Key / JWT / OAuth2)；
-//   2) 为查询端点补充租户隔离 (tenantId) 校验，禁止任意来源访问。
+// 安全说明：本模块已引入 spring-boot-starter-security，/api/bigdata/analytics/** 全部端点
+// 强制校验 iot-backend 签发的 JWT（HS256，环境变量 APP_JWT_SECRET 与 iot-backend 共用同一密钥，
+// 见 com.iot.dataservice.config.SecurityConfig / JwtValidator；未携带或校验失败统一返回 401）。
+// metric-summary 已改为显式返回 501 (未接入 Doris 聚合宽表，不再返回伪造数据)；
+// device-health / screen-overview 仍返回硬编码示例数据，接入真实数据源前同样需要替换。
+// 后续待办：为查询端点补充租户隔离 (tenantId) 校验。
 public class OlapAnalyticsController {
 
     private final OlapAnalyticsService analyticsService;
