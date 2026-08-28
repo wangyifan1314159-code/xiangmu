@@ -265,14 +265,20 @@ switch ($Mode) {
         Ensure-EnvFile
         Write-Step "启动基础设施容器 (PostgreSQL 与 EMQX)"
         cmd.exe /c "docker compose up -d postgres emqx 2>&1"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err ("基础设施容器启动失败，退出码: " + $LASTEXITCODE)
+            exit $LASTEXITCODE
+        }
         Write-Success "数据库与 MQTT 代理已启动。请在本地启动后端与前端开发服务！"
     }
     "stop" {
         Write-Step "停止所有运行中的 Docker 容器"
         cmd.exe /c "docker compose down 2>&1"
-        try {
-            cmd.exe /c "docker compose -f docker-compose-bigdata.yml down 2>&1"
-        } catch {}
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err ("容器停止失败，退出码: " + $LASTEXITCODE)
+            exit $LASTEXITCODE
+        }
+        cmd.exe /c "docker compose -f docker-compose-bigdata.yml down 2>&1"
         Write-Success "所有容器已停止"
     }
     "status" {

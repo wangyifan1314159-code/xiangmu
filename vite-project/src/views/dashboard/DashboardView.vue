@@ -4,7 +4,7 @@
     <header class="top-bar">
       <div class="tb-left">
         <span class="clock font-mono"><i class="live-dot"></i>{{ currentTime }}</span>
-        <span class="safe-days">安全运行 <b class="font-mono">{{ safeDays }}</b> 天</span>
+        <span v-if="safeDays > 0" class="safe-days">安全运行 <b class="font-mono">{{ safeDays }}</b> 天</span>
       </div>
       <div class="tb-center">
         <h1>工业物联网大数据与实时湖仓监控中心</h1>
@@ -332,7 +332,7 @@ import { FullScreen } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
 // ─────────────────────────────────────────────────────────────
-// 类型定义（mock 数据结构）
+// 类型定义（大屏数据结构）
 // ─────────────────────────────────────────────────────────────
 interface KpiDef {
   key: string; label: string; unit: string; decimals: number
@@ -493,7 +493,7 @@ const envList = computed<EnvItem[]>(() =>
     const value = envState[d.key]
     return {
       ...d, value,
-      segs: Math.min(12, Math.max(1, Math.round((value / d.displayMax) * 12))),
+      segs: value > 0 ? Math.min(12, Math.round((value / d.displayMax) * 12)) : 0,  // 0 值不点亮（无数据不伪造）
       warn: d.threshold !== null && value >= d.threshold
     }
   })
@@ -536,7 +536,7 @@ const coreMetricList = computed(() =>
 )
 
 // ─────────────────────────────────────────────────────────────
-// 中栏 ① 巷道态势图：SVG 传感器点位（真实值优先 + mock 兜底）
+// 中栏 ① 巷道态势图：SVG 传感器点位（仅真实值，初值 0）
 // [已接入] 点位实时值由 WebSocket 推送驱动（SENSOR_TYPE_MAP：sensorId 类型 → 点位映射）
 // ─────────────────────────────────────────────────────────────
 const sensorPoints = reactive<SensorPoint[]>([
@@ -753,10 +753,10 @@ function buildPipeOption(): echarts.EChartsCoreOption {
     }],
     graphic: pipelineTotal.value > 0
       ? [{
-          type: 'text', left: '32%', top: '50%', silent: true,
+          id: 'pipeTotal', type: 'text', left: '32%', top: '50%', silent: true,
           style: { text: String(pipelineTotal.value), textAlign: 'center', textVerticalAlign: 'middle', fill: TXT, font: `600 15px ${MONO}`, y: -8 }
         }, {
-          type: 'text', left: '32%', top: '50%', silent: true,
+          id: 'pipeTotalLabel', type: 'text', left: '32%', top: '50%', silent: true,
           style: { text: '累计', textAlign: 'center', textVerticalAlign: 'middle', fill: DIM, font: `9px ${MONO}`, y: 10 }
         }]
       : []
@@ -943,7 +943,7 @@ function startLoops() {
   wsUnsub = ws.onAllDeviceData(handleWsData)
   // 刷新数据源徽标与消息速率窗口（实时 = WS 已连且 20s 内收到过真实数据）
   dataTimer = setInterval(() => {
-    sourceLive.value = ws.connected && Date.now() - lastRealDataAt.value < 20_000
+    sourceLive.value = ws.connected.value && Date.now() - lastRealDataAt.value < 20_000
     const now = Date.now()
     while (recentMsgTimes.length > 0 && now - recentMsgTimes[0] > 60_000) recentMsgTimes.shift()
     pipelineRate.value = recentMsgTimes.length / 60
@@ -1130,6 +1130,8 @@ onUnmounted(() => {
   font-size: 11px; color: var(--dim); letter-spacing: 1px;
   pointer-events: none;
 }
+/* 管道面板空态挂载在 .pipe-chart-wrap（无 34px 头部），居中即可 */
+.pipe-chart-wrap .stream-empty { inset: 0; }
 .src-badge {
   display: inline-flex; align-items: center; margin-right: 8px;
   padding: 3px 10px; font-size: 11px; border-radius: 3px;

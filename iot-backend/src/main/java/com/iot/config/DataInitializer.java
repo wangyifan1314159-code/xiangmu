@@ -6,6 +6,7 @@ import com.iot.model.User;
 import com.iot.repository.DeviceRepository;
 import com.iot.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class DataInitializer implements CommandLineRunner {
 
     private final UserRepository userRepository;
@@ -35,7 +37,7 @@ public class DataInitializer implements CommandLineRunner {
         // 测试账号：admin/admin123（ADMIN）、user/user123（USER）
         // 仅限本地/测试环境使用，生产环境必须设为 app.seed-users.enabled=false
         if (seedUsersEnabled) {
-            System.out.println("[种子账号] app.seed-users.enabled=true，确保测试账号存在：admin/admin123（管理员）、user/user123（普通用户）");
+            log.warn("[种子账号] app.seed-users.enabled=true，确保测试账号存在：admin/admin123（管理员）、user/user123（普通用户）");
             ensureUser("admin", "admin@iot.com", "admin123", "ADMIN");
             ensureUser("user",  "user@iot.com",  "user123",  "USER");
         }

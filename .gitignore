@@ -16,6 +16,9 @@ node_modules/
 dist/
 .vite/
 
+# 前端构建产物（deploy.ps1 构建时拷入后端 static，本机生成不入库）
+iot-backend/src/main/resources/static/
+
 # Logs
 *.log
 logs/

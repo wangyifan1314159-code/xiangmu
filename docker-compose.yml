@@ -33,8 +33,8 @@ services:
     container_name: iot-emqx
     ports:
       - "1883:1883"    # MQTT（MQTTX / 设备连接）
-      - "8083:8083"    # MQTT over WebSocket
-      - "18083:18083"  # EMQX Dashboard（密码见 .env 中 EMQX_DASHBOARD_PASSWORD）
+      - "127.0.0.1:8083:8083"   # MQTT over WebSocket（管理面，仅本机）
+      - "127.0.0.1:18083:18083" # EMQX Dashboard（管理面，仅本机；密码见 .env 中 EMQX_DASHBOARD_PASSWORD）
     environment:
       # 管理台密码必须由 .env 注入，缺失即拒绝启动（EMQX 默认 admin/public 属弱口令）
       EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:?请在 .env 中设置 EMQX_DASHBOARD_PASSWORD}
