@@ -427,7 +427,7 @@ const marqueeAlerts = ref<MarqueeAlert[]>([
 const marqueeLoop = computed(() => [...marqueeAlerts.value, ...marqueeAlerts.value])
 
 async function fetchAlertMarquee() {
-  // [接入点] realApi.getAlertRecords：真实告警记录（已接入，失败时回落 mock）
+  // [已接入] realApi.getAlertRecords：真实告警记录（失败时回落 mock）
   try {
     const page = await realApi.getAlertRecords({ status: 'TRIGGERED', page: 0, size: 8 })
     const content = page?.content || []
@@ -456,6 +456,19 @@ const envDefs: EnvDef[] = [
   { key: 'wind', name: '巷道风速', unit: 'm/s', decimals: 1, displayMax: 6, threshold: null, base: 3.2, amp: 0.5 },
   { key: 'dust', name: '粉尘浓度', unit: 'mg/m³', decimals: 1, displayMax: 30, threshold: 20, base: 14.2, amp: 4 }
 ]
+// [已接入] 传感器类型 → 大屏目标映射（后端为通用 IoT 传感器，按最接近类型代理）
+// temperature/humidity 数值天然匹配；pm25/co2 为视觉代理映射，见 scale 注释
+const SENSOR_TYPE_MAP: Record<string, { env?: string; point?: string; scale?: number }> = {
+  temperature: { env: 'temp', point: 'temp' },
+  humidity: { env: 'humidity', point: 'hum' },
+  pm25: { env: 'dust', point: 'dust', scale: 0.5 },   // μg/m³ → mg/m³ 量级代理
+  co2: { env: 'co', point: 'co', scale: 0.025 }        // ppm CO2 → CO 显示量级代理
+}
+// [已接入] 真实值豁免窗口：目标键 → 时间戳；期内 tickEnv/tickPoints 跳过该键
+// （mock 不干扰真实值，超时后恢复游走兜底）
+const realUntil: Record<string, number> = {}
+// [已接入] sensorId → 传感器类型索引（devices 加载后构建，用于 WS 数据分发）
+const sensorIndex = new Map<string, { type: string; name: string }>()
 const envState = reactive<Record<string, number>>(
   Object.fromEntries(envDefs.map(d => [d.key, d.base]))
 )
@@ -471,6 +484,8 @@ const envList = computed<EnvItem[]>(() =>
 )
 function tickEnv() {
   for (const d of envDefs) {
+    // 真实值豁免期内不游走（超时后恢复 mock 兜底）
+    if (Date.now() < (realUntil[d.key] ?? 0)) continue
     const next = envState[d.key] + (Math.random() - 0.5) * d.amp * 0.35
     envState[d.key] = +Math.max(d.base - d.amp, Math.min(d.base + d.amp, next)).toFixed(d.decimals)
   }
@@ -478,7 +493,7 @@ function tickEnv() {
 
 // ─────────────────────────────────────────────────────────────
 // 左栏 ② 生产进度 + 中栏核心指标 + 底部趋势 共享的机器状态
-// [接入点] mock 随机游走；未来由 WebSocket 掘进机数据帧驱动
+// [已接入] 底部趋势温度序列由真实历史数据预热；machine 状态仍为 mock 随机游走兜底
 // ─────────────────────────────────────────────────────────────
 const machine = reactive({
   todayFootage: 18.6,
@@ -532,8 +547,8 @@ const coreMetricList = computed(() =>
 )
 
 // ─────────────────────────────────────────────────────────────
-// 中栏 ① 巷道态势图：SVG 传感器点位（mock 随机游走）
-// [接入点] 点位实时值未来由 WebSocket 推送驱动（sensorId → 点位映射）
+// 中栏 ① 巷道态势图：SVG 传感器点位（真实值优先 + mock 兜底）
+// [已接入] 点位实时值由 WebSocket 推送驱动（SENSOR_TYPE_MAP：sensorId 类型 → 点位映射）
 // ─────────────────────────────────────────────────────────────
 const sensorPoints = reactive<SensorPoint[]>([
   { id: 't0', name: 'T0 瓦斯（掘进面）', short: 'T0瓦斯', x: 155, y: 205, unit: '%', decimals: 2, base: 0.34, amp: 0.16, value: 0.34, warn: false, warnTicks: 0, warnable: true },
@@ -547,6 +562,8 @@ const sensorPoints = reactive<SensorPoint[]>([
 ])
 function tickPoints() {
   for (const p of sensorPoints) {
+    // 真实值豁免期内不游走、不触发预警（超时后恢复 mock 兜底）
+    if (Date.now() < (realUntil[p.id] ?? 0)) continue
     if (p.warnTicks > 0) {
       // 预警态：数值冲向高位
       p.warnTicks--
@@ -619,7 +636,40 @@ function mockTelemetryTick() {
     status: value > s.max * 0.9 ? 'warning' : 'normal'
   })
 }
-// [接入点] WebSocket 真实遥测数据到达时插入流（真实数据优先于 mock 视觉）
+// [已接入] 真实传感器值 → 大屏目标（env 环境项 + 态势图点位），并刷新 15s 豁免窗口
+function applySensorValue(type: string, value: number) {
+  const map = SENSOR_TYPE_MAP[(type || '').toLowerCase()]
+  if (!map) return
+  const scaled = value * (map.scale ?? 1)
+  if (map.env && envState[map.env] !== undefined) {
+    const def = envDefs.find(d => d.key === map.env)
+    envState[map.env] = +scaled.toFixed(def?.decimals ?? 1)
+    realUntil[map.env] = Date.now() + 15000
+  }
+  if (map.point) {
+    const p = sensorPoints.find(sp => sp.id === map.point)
+    if (p) {
+      p.value = +scaled.toFixed(p.decimals)  // 只更新值，不触发 warn 逻辑
+      realUntil[p.id] = Date.now() + 15000
+    }
+  }
+}
+
+// [已接入] devices 加载后：构建 sensorId → 类型索引，命中映射的传感器当前值直接写入（首屏即真实）
+function seedRealInitialValues() {
+  sensorIndex.clear()
+  for (const d of deviceStore.devices) {
+    for (const s of d.sensors) {
+      if (!s?.id) continue
+      sensorIndex.set(String(s.id), { type: String(s.type || ''), name: s.name || '' })
+      if (SENSOR_TYPE_MAP[String(s.type || '').toLowerCase()]) {
+        applySensorValue(String(s.type || ''), typeof s.value === 'number' ? s.value : 0)
+      }
+    }
+  }
+}
+
+// [已接入] WebSocket 真实遥测数据到达时插入流，并按 SENSOR_TYPE_MAP 驱动大屏目标（真实优先，mock 兜底）
 function handleWsData(data: WsDeviceData) {
   if (data.type !== 'data') return
   pushTelemetry({
@@ -629,6 +679,9 @@ function handleWsData(data: WsDeviceData) {
     value: typeof data.value === 'number' ? data.value : 0,
     unit: data.unit || '', decimals: 2, status: 'normal'
   })
+  // 真实值覆盖：查 sensorIndex 得到传感器类型，命中映射则驱动 env/point 目标
+  const meta = sensorIndex.get(data.sensorId)
+  if (meta) applySensorValue(meta.type, typeof data.value === 'number' ? data.value : 0)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -661,18 +714,34 @@ function linkageTick() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 左栏 ③ 设备类型分布（mock，横向条形图）
-// [接入点] 未来按 deviceStore.devices 按类型聚合
+// 左栏 ③ 设备类型分布（真实聚合 + mock 兜底，横向条形图）
+// [已接入] devices 加载后按 device.type 聚合（type 为空归「其他」，降序取前 6；空列表保持 mock 兜底）
 // ─────────────────────────────────────────────────────────────
-const deviceTypeData = [
+const deviceTypeData = ref<{ name: string; value: number }[]>([
   { name: '瓦斯/环境站', value: 18 },
   { name: '主皮带运线', value: 14 },
   { name: '掘进机本体', value: 12 },
   { name: '主通风机', value: 10 },
   { name: '主排水泵', value: 8 },
   { name: '供配电系统', value: 6 }
-]
-const deviceTypeTotal = computed(() => deviceTypeData.reduce((s, d) => s + d.value, 0))
+])
+const deviceTypeTotal = computed(() => deviceTypeData.value.reduce((s, d) => s + d.value, 0))
+
+// [已接入] 设备类型真实聚合：仅当设备数 > 0 时替换 mock 数据
+function aggregateDeviceTypes() {
+  if (deviceStore.devices.length === 0) return  // 空列表保持 mock 兜底
+  const counts = new Map<string, number>()
+  for (const d of deviceStore.devices) {
+    const key = (d.type || '').trim() || '其他'
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+  deviceTypeData.value = [...counts.entries()]
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6)
+  // 若图表已初始化（如后续 devices 刷新），补一次刷新；init 前更新则由 initAllCharts 读取
+  deviceTypeChart?.setOption(buildDeviceTypeOption())
+}
 
 // ─────────────────────────────────────────────────────────────
 // ECharts 实例与初始化
@@ -721,6 +790,39 @@ function makeGaugeOption(value: number, label: string): echarts.EChartsCoreOptio
   }
 }
 
+// 设备类型分布 option 构造（数据来自 deviceTypeData.value，聚合更新后可重复调用）
+function buildDeviceTypeOption(): echarts.EChartsCoreOption {
+  return {
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'shadow' },
+      backgroundColor: 'rgba(6,22,48,0.92)', borderColor: 'rgba(46,155,255,0.45)',
+      textStyle: { color: TXT, fontSize: 12 }
+    },
+    grid: { top: 6, right: 34, bottom: 2, left: 6, containLabel: true },
+    xAxis: { type: 'value', axisLabel: { show: false }, splitLine: { show: false }, axisLine: { show: false } },
+    yAxis: {
+      type: 'category', inverse: true,
+      data: deviceTypeData.value.map(d => d.name),
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: DIM, fontSize: 11 }
+    },
+    series: [{
+      type: 'bar', barWidth: 9,
+      data: deviceTypeData.value.map(d => d.value),
+      itemStyle: {
+        borderRadius: [0, 5, 5, 0],
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: 'rgba(0,229,255,0.20)' },
+          { offset: 1, color: CYAN }
+        ])
+      },
+      showBackground: true,
+      backgroundStyle: { color: 'rgba(46,155,255,0.08)', borderRadius: [0, 5, 5, 0] },
+      label: { show: true, position: 'right', color: TXT, fontSize: 11, fontFamily: MONO }
+    }]
+  }
+}
+
 function initAllCharts() {
   // 左栏② 生产进度 gauge
   if (gaugeChartRef.value) {
@@ -731,35 +833,7 @@ function initAllCharts() {
   // 左栏③ 设备类型分布：单色渐变横向条形图
   if (deviceTypeChartRef.value) {
     deviceTypeChart = echarts.init(deviceTypeChartRef.value)
-    deviceTypeChart.setOption({
-      tooltip: {
-        trigger: 'axis', axisPointer: { type: 'shadow' },
-        backgroundColor: 'rgba(6,22,48,0.92)', borderColor: 'rgba(46,155,255,0.45)',
-        textStyle: { color: TXT, fontSize: 12 }
-      },
-      grid: { top: 6, right: 34, bottom: 2, left: 6, containLabel: true },
-      xAxis: { type: 'value', axisLabel: { show: false }, splitLine: { show: false }, axisLine: { show: false } },
-      yAxis: {
-        type: 'category', inverse: true,
-        data: deviceTypeData.map(d => d.name),
-        axisLine: { show: false }, axisTick: { show: false },
-        axisLabel: { color: DIM, fontSize: 11 }
-      },
-      series: [{
-        type: 'bar', barWidth: 9,
-        data: deviceTypeData.map(d => d.value),
-        itemStyle: {
-          borderRadius: [0, 5, 5, 0],
-          color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-            { offset: 0, color: 'rgba(0,229,255,0.20)' },
-            { offset: 1, color: CYAN }
-          ])
-        },
-        showBackground: true,
-        backgroundStyle: { color: 'rgba(46,155,255,0.08)', borderRadius: [0, 5, 5, 0] },
-        label: { show: true, position: 'right', color: TXT, fontSize: 11, fontFamily: MONO }
-      }]
-    })
+    deviceTypeChart.setOption(buildDeviceTypeOption())
   }
 
   // 右栏① PHM 健康 gauge + 近 8 日迷你趋势
@@ -831,6 +905,43 @@ function seedTrend() {
     trendPress.push(+(28.5 + Math.cos(phase) * 1.2 + (Math.random() - 0.5) * 0.5).toFixed(1))
     trendSpeed.push(+(1.28 + Math.sin(phase / 2) * 0.08 + (Math.random() - 0.5) * 0.05).toFixed(2))
   }
+}
+
+// [已接入] 底部趋势真实预热：取第一台有温度传感器且在线的设备的历史数据重建窗口
+// （X 轴用真实时间戳、温度序列用真实值；压力/推进速度保持 mock 种子并按长度对齐；失败保持 mock 种子）
+async function warmTrendWithRealData() {
+  try {
+    const dev = deviceStore.devices.find(d =>
+      d.status === 'online' && d.sensors.some(s => (s.type || '').toLowerCase() === 'temperature'))
+    if (!dev) return
+    const sensor = dev.sensors.find(s => (s.type || '').toLowerCase() === 'temperature')
+    if (!sensor) return
+    const points = await realApi.getDeviceData(dev.id, sensor.id, 60) as Array<{ timestamp?: string; value?: number }>
+    if (!Array.isArray(points) || points.length < 10) return
+    // 后端可能按时间倒序：统一按时间正序排列
+    const sorted = points
+      .filter(p => p && typeof p.value === 'number')
+      .sort((a, b) => new Date(String(a.timestamp)).getTime() - new Date(String(b.timestamp)).getTime())
+    if (sorted.length < 10) return
+    // 重建窗口：X 轴类目与温度序列均来自真实数据
+    trendLabels.length = 0; trendLabelFlags.length = 0; trendTemp.length = 0
+    for (const p of sorted.slice(-TREND_WINDOW)) {
+      const ts = new Date(String(p.timestamp))
+      const label = fmtHMS(isNaN(ts.getTime()) ? new Date() : ts)
+      const prev = trendLabels.length > 0 ? trendLabels[trendLabels.length - 1] : ''
+      trendLabels.push(label)
+      trendLabelFlags.push(label.slice(0, 5) !== prev.slice(0, 5))
+      trendTemp.push(+Number(p.value).toFixed(1))
+    }
+    // 压力/推进速度：保持 mock 种子并对齐长度（不足用 mock 值填充，多余截断）
+    const n = trendLabels.length
+    while (trendPress.length < n) trendPress.push(+(28.5 + (Math.random() - 0.5) * 1.2).toFixed(1))
+    if (trendPress.length > n) trendPress.splice(0, trendPress.length - n)
+    while (trendSpeed.length < n) trendSpeed.push(+(1.28 + (Math.random() - 0.5) * 0.1).toFixed(2))
+    if (trendSpeed.length > n) trendSpeed.splice(0, trendSpeed.length - n)
+    // 图表已初始化时立即刷新（未初始化则由 initAllCharts 读取）
+    updateCharts()
+  } catch { /* 失败保持 mock 种子，不报错 */ }
 }
 
 function buildTrendOption(): echarts.EChartsCoreOption {
@@ -933,7 +1044,7 @@ let linkageTimer: ReturnType<typeof setInterval> | undefined
 function startLoops() {
   stopLoops()
   ws.connect()
-  // [接入点] WebSocket 全量设备数据 → 遥测流（真实数据与 mock 混合展示）
+  // [已接入] WebSocket 全量设备数据 → 遥测流 + 大屏目标分发（真实数据优先，mock 兜底）
   wsUnsub = ws.onAllDeviceData(handleWsData)
   dataTimer = setInterval(() => {
     tickKpis(); tickEnv(); tickMachine(); tickPoints(); tickPhm()
@@ -959,14 +1070,17 @@ onMounted(async () => {
   seedLinkage()
   for (let i = 0; i < 9; i++) mockTelemetryTick()
 
-  // [接入点] 真实设备数/在线数（deviceStore）
+  // [已接入] 真实设备数/在线数（deviceStore）+ 首屏真实值/类型聚合
   try {
     await deviceStore.fetchDevices()
     if (deviceStore.totalCount > 0) {
       kpiValues.devices = deviceStore.totalCount
       kpiValues.online = deviceStore.onlineCount
     }
+    seedRealInitialValues()   // [已接入] sensorId 索引 + 命中映射的传感器当前值（首屏即真实）
+    aggregateDeviceTypes()    // [已接入] 设备类型分布真实聚合（空列表保持 mock）
   } catch { /* 保持 mock 值 */ }
+  warmTrendWithRealData()     // [已接入] 底部趋势真实预热（异步，失败保持 mock 种子）
   fetchAlertMarquee()
 
   await nextTick()
